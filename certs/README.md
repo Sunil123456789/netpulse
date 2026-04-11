@@ -1,0 +1,1 @@
+# Place your elasticsearch-ca.pem here
