@@ -1,0 +1,1 @@
+Write-Host 'Setup complete! Edit .env then run: docker compose up -d'

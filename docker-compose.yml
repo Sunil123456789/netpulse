@@ -1,0 +1,90 @@
+name: netpulse-dev
+
+services:
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: netpulse-client
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:5000
+      - VITE_WS_URL=ws://localhost:5000
+    depends_on:
+      - server
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: netpulse-server
+    ports:
+      - "5000:5000"
+      - "9229:9229"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./certs:/app/certs:ro
+    env_file:
+      - .env
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    container_name: netpulse-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: netpulse_dev
+      MONGO_INITDB_DATABASE: netpulse
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: netpulse-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass netpulse_dev
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "netpulse_dev", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  netpulse:
+    driver: bridge
