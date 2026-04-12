@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../../store/authStore'
+import { NetPulseLogoFull } from '../ui/NetPulseLogo.jsx'
 const titles = { '/soc':'Security Operations Center', '/noc':'Network Operations Center', '/tickets':'Ticket Management', '/ai':'AI Assistant', '/reports':'Reports & Analytics', '/admin':'Administration' }
 export default function Topbar() {
   const { pathname } = useLocation()
@@ -9,9 +10,13 @@ export default function Topbar() {
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t) }, [])
   return (
     <header style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', background:'var(--bg2)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-      <div>
-        <div style={{ fontSize:15, fontWeight:700, color:'var(--text)' }}>{titles[pathname] || 'NetPulse'}</div>
-        <div style={{ fontSize:11, color:'var(--text3)', fontFamily:'var(--mono)' }}>netpulse.local</div>
+      <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+        <NetPulseLogoFull iconSize={28} />
+        <div style={{ width:1, height:28, background:'var(--border)' }} />
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>{titles[pathname] || 'NetPulse'}</div>
+          <div style={{ fontSize:10, color:'var(--text3)', fontFamily:'var(--mono)' }}>netpulse.local</div>
+        </div>
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, fontFamily:'var(--mono)', fontSize:11, color:'var(--green)', background:'rgba(34,211,160,0.08)', border:'1px solid rgba(34,211,160,0.2)', padding:'4px 10px', borderRadius:20 }}>
