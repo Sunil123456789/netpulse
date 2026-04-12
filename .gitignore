@@ -1,3 +1,6 @@
+# Local project docs (audit reports, roadmap — not for git)
+.project/
+
 # Logs
 logs
 *.log

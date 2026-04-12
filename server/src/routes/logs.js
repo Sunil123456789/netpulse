@@ -162,9 +162,15 @@ router.get('/events/recent', async (req, res) => {
     const result = await es.search({
       index,
       body: {
-        size: parseInt(req.query.size) || 50,
+        size: Math.min(parseInt(req.query.size) || 50, 500),
         sort: [{ '@timestamp': { order: 'desc' } }],
         query: { range: { '@timestamp': tr } },
+        _source: [
+          '@timestamp', 'syslog_severity_label', 'cisco_severity_label',
+          'fgt.action', 'fgt.srcip', 'fgt.dstip', 'fgt.srccountry', 'fgt.app', 'fgt.subtype', 'fgt.type', 'fgt.msg', 'fgt.attack',
+          'cisco_mnemonic', 'cisco_message', 'cisco_interface_full', 'cisco_vlan_id',
+          'device_name', 'site_name',
+        ],
       },
     })
     res.json(result.hits.hits.map(h => ({ ...h._source, _index: h._index })))
@@ -181,6 +187,7 @@ router.get('/sessions', async (req, res) => {
         size: 100,
         sort: [{ '@timestamp': { order: 'desc' } }],
         query: { bool: { must: [{ range: { '@timestamp': tr } }, { term: { 'fgt.type.keyword': 'traffic' } }] } },
+        _source: ['@timestamp','fgt.srcip','fgt.srcport','fgt.dstip','fgt.dstport','fgt.proto','fgt.action','fgt.app','fgt.sentbyte','fgt.rcvdbyte','fgt.srccountry','site_name'],
       },
     })
     res.json(result.hits.hits.map(h => h._source))

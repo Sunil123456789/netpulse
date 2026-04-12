@@ -8,6 +8,7 @@ import AdminPage from './pages/Admin/AdminPage'
 import TicketsPage from './pages/Tickets/TicketsPage'
 import ReportsPage from './pages/Reports/ReportsPage'
 import AIPage from './pages/AI/AIPage'
+import EDRPage from './pages/EDR/EDRPage'
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
   return token ? children : <Navigate to="/login" replace />
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="admin"   element={<AdminPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="ai"      element={<AIPage />} />
+        <Route path="edr"     element={<EDRPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/soc" replace />} />
     </Routes>

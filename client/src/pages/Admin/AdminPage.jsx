@@ -18,7 +18,7 @@ function Modal({ title, onClose, children }) {
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border2)', borderRadius:14, padding:28, width:500, maxHeight:'80vh', overflowY:'auto' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
           <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{title}</div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:C.text3, cursor:'pointer', fontSize:18 }}>?</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:C.text3, cursor:'pointer', fontSize:18 }}>&times;</button>
         </div>
         {children}
       </div>
@@ -67,6 +67,7 @@ export default function AdminPage() {
   const [modal, setModal]     = useState(null)
   const [form, setForm]       = useState({})
   const [loading, setLoading] = useState(false)
+  const [confirmState, setConfirmState] = useState(null) // { type, id, name }
 
   const f = key => val => setForm(p => ({ ...p, [key]: val }))
 
@@ -88,14 +89,25 @@ export default function AdminPage() {
   useEffect(() => { loadAll() }, [])
 
   async function save() {
+    const { _type, _id } = form
+    // M4: required-field validation per resource type
+    const required = {
+      devices: [['name','Device Name'], ['ip','IP Address']],
+      sites:   [['name','Site Name']],
+      users:   _id ? [['name','Full Name'],['email','Email']] : [['name','Full Name'],['email','Email'],['password','Password']],
+      alerts:  [['name','Rule Name']],
+    }
+    for (const [key, label] of (required[_type] || [])) {
+      if (!form[key]?.trim()) { toast.error(`${label} is required`); return }
+    }
     setLoading(true)
     try {
-      const { _type, _id, ...data } = form
-      if (_id) {
-        await api.put(`/api/${_type}/${_id}`, data)
+      const { _type: t, _id: id, ...data } = form
+      if (id) {
+        await api.put(`/api/${t}/${id}`, data)
         toast.success('Updated successfully')
       } else {
-        await api.post(`/api/${_type}`, data)
+        await api.post(`/api/${t}`, data)
         toast.success('Created successfully')
       }
       setModal(null)
@@ -106,7 +118,12 @@ export default function AdminPage() {
   }
 
   async function remove(type, id, name) {
-    if (!confirm(`Delete ${name}?`)) return
+    setConfirmState({ type, id, name })
+  }
+
+  async function confirmDelete() {
+    const { type, id } = confirmState
+    setConfirmState(null)
     try {
       await api.delete(`/api/${type}/${id}`)
       toast.success('Deleted')
@@ -485,10 +502,22 @@ export default function AdminPage() {
         </Modal>
       )}
 
+      {/* -- CONFIRM DELETE DIALOG -- */}
+      {confirmState && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100 }}>
+          <div style={{ background:'var(--bg2)', border:`1px solid ${C.red}50`, borderRadius:14, padding:28, width:380 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:10 }}>Confirm Delete</div>
+            <div style={{ fontSize:12, color:C.text2, fontFamily:'var(--mono)', marginBottom:22 }}>
+              Delete <span style={{ color:C.red, fontWeight:600 }}>{confirmState.name}</span>? This cannot be undone.
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <button onClick={() => setConfirmState(null)} style={{ padding:'8px 16px', borderRadius:7, border:'1px solid var(--border)', background:'transparent', color:C.text2, cursor:'pointer', fontSize:12, fontFamily:'var(--sans)' }}>Cancel</button>
+              <Btn label="Delete" danger onClick={confirmDelete} />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
-
-
-
-

@@ -89,8 +89,22 @@ export default function LogSearch({ type, accentColor }) {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
 
-  const timerRef = useRef(null)
-  const f = key => val => setFilters(p => ({ ...p, [key]: val }))
+  const timerRef  = useRef(null)
+  const debounceRef = useRef(null)
+
+  const f = key => val => {
+    setFilters(p => ({ ...p, [key]: val }))
+    if (mode === 'range') {
+      if (key === 'q') {
+        // debounce free-text: wait 400ms before resetting page and re-fetching
+        clearTimeout(debounceRef.current)
+        debounceRef.current = setTimeout(() => setPage(0), 400)
+      } else {
+        // instant reset for dropdown filters
+        setPage(0)
+      }
+    }
+  }
 
   // Build query params
   const buildParams = useCallback((overrides = {}) => {
@@ -153,7 +167,7 @@ export default function LogSearch({ type, accentColor }) {
     if (mode !== 'range') return
     fetchData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, range, page, pageSize])
+  }, [mode, range, page, pageSize, filters])
 
   const handleSearch = () => { setPage(0); fetchData({ page: 0 }) }
 
@@ -359,7 +373,7 @@ export default function LogSearch({ type, accentColor }) {
           marginLeft:'auto', padding:'4px 12px', borderRadius:7, border:`1px solid ${C.border}`,
           background:'var(--bg4)', color: results.length ? C.text2 : C.text3,
           fontSize:10, fontFamily:'var(--mono)', cursor: results.length ? 'pointer' : 'default',
-        }}>⬇ Export CSV ({results.length})</button>
+        }}>⬇ Export Page ({results.length} rows)</button>
       </div>
 
       {/* ── ERROR ── */}
