@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import NetPulseLogo from '../ui/NetPulseLogo.jsx'
 const nav = [
+  { to:'/home',    label:'Home',    icon:'🏠' },
   { to:'/soc',     label:'SOC',     icon:'⚡' },
   { to:'/noc',     label:'NOC',     icon:'🌐' },
   { to:'/edr',     label:'EDR',     icon:'🛡️' },
