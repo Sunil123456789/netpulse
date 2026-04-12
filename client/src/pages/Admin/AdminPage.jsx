@@ -5,11 +5,11 @@ import toast from 'react-hot-toast'
 const C = { accent:'#4f7ef5', accent2:'#7c5cfc', green:'#22d3a0', red:'#f5534f', amber:'#f5a623', cyan:'#22d3ee', text:'#e8eaf2', text2:'#8b90aa', text3:'#555a72' }
 
 const TABS = [
-  { id:'devices',  label:'Devices',     icon:'??' },
-  { id:'sites',    label:'Sites',       icon:'??' },
-  { id:'users',    label:'Users',       icon:'??' },
-  { id:'alerts',   label:'Alert Rules', icon:'??' },
-  { id:'system',   label:'System',      icon:'??' },
+  { id:'devices',  label:'Devices',     icon:'' },
+  { id:'sites',    label:'Sites',       icon:'' },
+  { id:'users',    label:'Users',       icon:'' },
+  { id:'alerts',   label:'Alert Rules', icon:'' },
+  { id:'system',   label:'System',      icon:'' },
 ]
 
 function Modal({ title, onClose, children }) {
@@ -177,9 +177,9 @@ export default function AdminPage() {
                       <TD color={C.cyan}><strong>{d.name}</strong></TD>
                       <TD>{d.ip}</TD>
                       <TD><Badge label={d.type} /></TD>
-                      <TD>{d.site?.name||d.site||'—'}</TD>
+                      <TD>{d.site?.name||d.site||'ï¿½'}</TD>
                       <TD><Badge label={d.status||'unknown'} /></TD>
-                      <TD color={C.text3}>{d.notes?.slice(0,30)||'—'}</TD>
+                      <TD color={C.text3}>{d.notes?.slice(0,30)||'ï¿½'}</TD>
                       <td style={{ padding:'8px 12px', borderBottom:'1px solid rgba(99,120,200,0.07)' }}>
                         <div style={{ display:'flex', gap:6 }}>
                           <Btn label="Edit" small onClick={()=>openEdit('devices',d)} />
@@ -188,7 +188,7 @@ export default function AdminPage() {
                       </td>
                     </tr>
                   ))}
-                  {devices.length===0 && <tr><td colSpan={7} style={{ padding:30, textAlign:'center', color:C.text3, fontFamily:'var(--mono)', fontSize:11 }}>No devices — click Add Device to get started</td></tr>}
+                  {devices.length===0 && <tr><td colSpan={7} style={{ padding:30, textAlign:'center', color:C.text3, fontFamily:'var(--mono)', fontSize:11 }}>No devices ï¿½ click Add Device to get started</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -280,7 +280,7 @@ export default function AdminPage() {
       {tab==='alerts' && (
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>{alerts.length} rules · {alerts.filter(a=>a.enabled).length} active</div>
+            <div style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>{alerts.length} rules ï¿½ {alerts.filter(a=>a.enabled).length} active</div>
             <Btn label="+ Add Rule" onClick={()=>openCreate('alerts')} />
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -322,14 +322,14 @@ export default function AdminPage() {
           <div className="card">
             <div className="card-header"><span className="card-title">AI PROVIDER</span><span className="badge badge-purple">CONFIG</span></div>
             <div style={{ padding:'16px' }}>
-              <div style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)', marginBottom:12 }}>Current provider — switch without restart</div>
+              <div style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)', marginBottom:12 }}>Current provider ï¿½ switch without restart</div>
               {['claude','openai','ollama'].map(p => (
                 <div key={p} onClick={async()=>{ await api.post('/api/ai/provider',{provider:p}); toast.success(`Switched to ${p}`) }}
                   style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, cursor:'pointer', marginBottom:6, border:'1px solid var(--border)', background:'var(--bg3)' }}>
                   <div style={{ width:8, height:8, borderRadius:'50%', background: p==='claude'?C.accent2:p==='openai'?C.green:C.amber }} />
                   <span style={{ fontSize:12, color:C.text, fontFamily:'var(--mono)', fontWeight:600 }}>{p}</span>
                   <span style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>
-                    {p==='claude'?'Anthropic Claude — best for analysis':p==='openai'?'OpenAI GPT-4o — fast and capable':'Local Ollama — private, no API cost'}
+                    {p==='claude'?'Anthropic Claude ï¿½ best for analysis':p==='openai'?'OpenAI GPT-4o ï¿½ fast and capable':'Local Ollama ï¿½ private, no API cost'}
                   </span>
                 </div>
               ))}
@@ -445,9 +445,9 @@ export default function AdminPage() {
           <Field label="Email" value={form.email||''} onChange={f('email')} type="email" required />
           {modal.includes('create') && <Field label="Password" value={form.password||''} onChange={f('password')} type="password" required />}
           <Field label="Role" value={form.role||'viewer'} onChange={f('role')} options={[
-            {value:'admin',label:'Admin — full access'},
-            {value:'analyst',label:'Analyst — can create tickets'},
-            {value:'viewer',label:'Viewer — read only'},
+            {value:'admin',label:'Admin ï¿½ full access'},
+            {value:'analyst',label:'Analyst ï¿½ can create tickets'},
+            {value:'viewer',label:'Viewer ï¿½ read only'},
           ]} />
           <Field label="Active" value={form.active?.toString()||'true'} onChange={v=>f('active')(v==='true')} options={[{value:'true',label:'Active'},{value:'false',label:'Inactive'}]} />
           <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:8 }}>
@@ -462,9 +462,9 @@ export default function AdminPage() {
           <Field label="Rule Name" value={form.name||''} onChange={f('name')} required />
           <Field label="Description" value={form.description||''} onChange={f('description')} />
           <Field label="Type" value={form.type||'threshold'} onChange={f('type')} options={[
-            {value:'threshold',label:'Threshold — count exceeds value'},
-            {value:'anomaly',label:'Anomaly — AI detected deviation'},
-            {value:'pattern',label:'Pattern — regex/keyword match'},
+            {value:'threshold',label:'Threshold ï¿½ count exceeds value'},
+            {value:'anomaly',label:'Anomaly ï¿½ AI detected deviation'},
+            {value:'pattern',label:'Pattern ï¿½ regex/keyword match'},
           ]} />
           <Field label="Source" value={form.source||'all'} onChange={f('source')} options={[
             {value:'all',label:'All sources'},
@@ -488,3 +488,4 @@ export default function AdminPage() {
     </div>
   )
 }
+

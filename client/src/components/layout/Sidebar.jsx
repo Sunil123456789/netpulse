@@ -6,7 +6,7 @@ const nav = [
   { to:'/tickets', label:'Tickets', icon:'🎫' },
   { to:'/ai',      label:'AI',      icon:'🤖' },
   { to:'/reports', label:'Reports', icon:'📊' },
-  { to:'/admin',   label:'Admin',   icon:'⚙️' },
+  { to:'/admin',   label:'Admin',   icon:'Admin' },
 ]
 export default function Sidebar() {
   const { logout } = useAuthStore()
@@ -23,3 +23,4 @@ export default function Sidebar() {
     </aside>
   )
 }
+
