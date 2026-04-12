@@ -1,4 +1,5 @@
 import RangePicker from '../../components/ui/RangePicker.jsx'
+import LogSearch from '../../components/ui/LogSearch.jsx'
 import { useEffect, useState, useRef } from 'react'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js'
@@ -16,6 +17,7 @@ const TABS = [
   { id:'macflap',    label:'MAC Flapping' },
   { id:'sites',      label:'Site Comparison' },
   { id:'events',     label:'Event Feed' },
+  { id:'logsearch',  label:'Log Search' },
 ]
 
 const co = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } }, scales:{ x:{ ticks:{ color:C.text3, font:{ size:9 }, maxTicksLimit:8 }, grid:{ color:'rgba(99,120,200,0.07)' } }, y:{ ticks:{ color:C.text3, font:{ size:9 } }, grid:{ color:'rgba(99,120,200,0.07)' } } } }
@@ -448,6 +450,11 @@ export default function NOCPage() {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* -- LOG SEARCH -- */}
+      {tab==='logsearch' && (
+        <LogSearch type="cisco" accentColor={C.cyan} />
       )}
 
     </div>
