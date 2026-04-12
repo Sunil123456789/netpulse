@@ -9,6 +9,7 @@ import TicketsPage from './pages/Tickets/TicketsPage'
 import ReportsPage from './pages/Reports/ReportsPage'
 import AIPage from './pages/AI/AIPage'
 import EDRPage from './pages/EDR/EDRPage'
+import HomePage from './pages/Home/HomePage'
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
   return token ? children : <Navigate to="/login" replace />
@@ -18,7 +19,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={<Navigate to="/soc" replace />} />
+        <Route index element={<Navigate to="/home" replace />} />
+        <Route path="home"    element={<HomePage />} />
         <Route path="soc"     element={<SOCPage />} />
         <Route path="noc"     element={<NOCPage />} />
         <Route path="tickets" element={<TicketsPage />} />
@@ -27,7 +29,7 @@ export default function App() {
         <Route path="ai"      element={<AIPage />} />
         <Route path="edr"     element={<EDRPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/soc" replace />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   )
 }
