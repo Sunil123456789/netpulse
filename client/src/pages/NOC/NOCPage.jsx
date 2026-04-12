@@ -74,15 +74,21 @@ export default function NOCPage() {
   const [ifaceData, setIfaceData] = useState({ timeline:[], top_interfaces:[], top_devices:[] })
   const [macData, setMacData]     = useState({ events:[], by_device:[], by_vlan:[], total:0 })
   const [liveEvents, setLiveEvents] = useState([])
+  const [fetchError, setFetchError] = useState(null)
+  const [wsStatus, setWsStatus]     = useState('connected')
   const socketRef = useRef(null)
 
   useEffect(() => {
-    socketRef.current = io(import.meta.env.VITE_WS_URL || 'http://localhost:5000')
-    socketRef.current.on('live:events', evs => {
+    const sock = io(import.meta.env.VITE_WS_URL || 'http://localhost:5000', { reconnectionDelay: 2000 })
+    socketRef.current = sock
+    sock.on('live:events', evs => {
       const cisco = evs.filter(e => e._index?.includes('cisco') || e.cisco_mnemonic)
       if (cisco.length) setLiveEvents(p => [...cisco,...p].slice(0,100))
     })
-    return () => socketRef.current?.disconnect()
+    sock.on('disconnect', () => setWsStatus('disconnected'))
+    sock.on('connect', () => setWsStatus('connected'))
+    sock.on('connect_error', () => setWsStatus('disconnected'))
+    return () => sock.disconnect()
   }, [])
 
   useEffect(() => {
@@ -98,7 +104,8 @@ export default function NOCPage() {
         setEvents(e.data)
         setIfaceData(iface.data)
         setMacData(mac.data)
-      } catch(err) { console.error(err) }
+        setFetchError(null)
+      } catch(err) { console.error(err); setFetchError(err.response?.data?.error || err.message) }
     }
     load()
     const t = setInterval(load, 30000)
@@ -152,6 +159,17 @@ export default function NOCPage() {
         </div>
         <RangePicker range={range} onChange={setRange} accentColor='#22d3ee' />
       </div>
+
+      {wsStatus === 'disconnected' && (
+        <div style={{ background:'rgba(245,83,79,0.12)', border:'1px solid rgba(245,83,79,0.3)', borderRadius:8, padding:'6px 14px', marginBottom:10, fontSize:11, color:C.red, fontFamily:'var(--mono)' }}>
+          Live feed disconnected — attempting to reconnect…
+        </div>
+      )}
+      {fetchError && (
+        <div style={{ background:'rgba(245,166,35,0.1)', border:'1px solid rgba(245,166,35,0.3)', borderRadius:8, padding:'6px 14px', marginBottom:10, fontSize:11, color:C.amber, fontFamily:'var(--mono)' }}>
+          Data fetch error: {fetchError}
+        </div>
+      )}
 
       {/* -- OVERVIEW -- */}
       {tab==='overview' && (

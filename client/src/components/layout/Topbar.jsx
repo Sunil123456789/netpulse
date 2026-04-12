@@ -2,7 +2,7 @@ import { useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../../store/authStore'
 import { NetPulseLogoFull } from '../ui/NetPulseLogo.jsx'
-const titles = { '/soc':'Security Operations Center', '/noc':'Network Operations Center', '/tickets':'Ticket Management', '/ai':'AI Assistant', '/reports':'Reports & Analytics', '/admin':'Administration' }
+const titles = { '/soc':'Security Operations Center', '/noc':'Network Operations Center', '/edr':'Endpoint Detection & Response', '/tickets':'Ticket Management', '/ai':'AI Assistant', '/reports':'Reports & Analytics', '/admin':'Administration' }
 export default function Topbar() {
   const { pathname } = useLocation()
   const { user } = useAuthStore()

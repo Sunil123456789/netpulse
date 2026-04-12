@@ -37,5 +37,5 @@ async function evaluateRule(rule, io) {
       io.emit('alert:fired', alert)
       await AlertRule.findByIdAndUpdate(rule._id, { lastFired: new Date() })
     }
-  } catch { }
+  } catch (err) { console.error('evaluateRule error [' + rule.name + ']:', err.message) }
 }

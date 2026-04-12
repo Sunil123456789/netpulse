@@ -99,28 +99,29 @@ export default function SOCPage() {
   const [sessions, setSessions] = useState([])
   const [liveEvents, setLiveEvents] = useState([])
   const [sevFilter, setSevFilter]   = useState('all')
+  const [fetchError, setFetchError] = useState(null)
+  const [wsStatus, setWsStatus]     = useState('connected')
   const socketRef = useRef(null)
 
   useEffect(() => {
-    socketRef.current = io(import.meta.env.VITE_WS_URL || 'http://localhost:5000')
-    socketRef.current.on('live:events', evs => setLiveEvents(p => [...evs,...p].slice(0,100)))
-    return () => socketRef.current?.disconnect()
+    const sock = io(import.meta.env.VITE_WS_URL || 'http://localhost:5000', { reconnectionDelay: 2000 })
+    socketRef.current = sock
+    sock.on('live:events', evs => setLiveEvents(p => [...evs,...p].slice(0,100)))
+    sock.on('disconnect', () => setWsStatus('disconnected'))
+    sock.on('connect', () => setWsStatus('connected'))
+    sock.on('connect_error', () => setWsStatus('disconnected'))
+    return () => sock.disconnect()
   }, [])
 
   useEffect(() => {
     async function load() {
       try {
-        const [s,t,th,d,e,se] = await Promise.all([
-          api.get(`/api/stats/soc?range=${range?.value||''}&from=${range?.from||''}&to=${range?.to||''}`),
-          api.get(`/api/logs/traffic/timeline?range=${range?.value||''}&from=${range?.from||''}&to=${range?.to||''}`),
-          api.get('/api/logs/threats/top'),
-          api.get('/api/logs/denied'),
-          api.get('/api/logs/events/recent?size=50'),
-          api.get('/api/logs/sessions'),
-        ])
-        setStats(s.data); setTimeline(t.data); setThreats(th.data)
-        setDenied(d.data); setEvents(e.data); setSessions(se.data)
-      } catch(err){ console.error(err) }
+        const qs = `range=${range?.value||''}&from=${range?.from||''}&to=${range?.to||''}`
+        const { data } = await api.get(`/api/stats/soc/overview?${qs}`)
+        setStats(data.stats); setTimeline(data.timeline); setThreats(data.threats)
+        setDenied(data.denied); setEvents(data.events); setSessions(data.sessions)
+        setFetchError(null)
+      } catch(err){ console.error(err); setFetchError(err.response?.data?.error || err.message) }
     }
     load()
     const t = setInterval(load, 30000)
@@ -184,6 +185,17 @@ export default function SOCPage() {
         </div>
         <RangePicker range={range} onChange={setRange} />
       </div>
+
+      {wsStatus === 'disconnected' && (
+        <div style={{ background:'rgba(245,83,79,0.12)', border:'1px solid rgba(245,83,79,0.3)', borderRadius:8, padding:'6px 14px', marginBottom:10, fontSize:11, color:C.red, fontFamily:'var(--mono)' }}>
+          Live feed disconnected — attempting to reconnect…
+        </div>
+      )}
+      {fetchError && (
+        <div style={{ background:'rgba(245,166,35,0.1)', border:'1px solid rgba(245,166,35,0.3)', borderRadius:8, padding:'6px 14px', marginBottom:10, fontSize:11, color:C.amber, fontFamily:'var(--mono)' }}>
+          Data fetch error: {fetchError}
+        </div>
+      )}
 
       {/* -- OVERVIEW -- */}
       {tab==='overview' && (
