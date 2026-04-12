@@ -1,3 +1,4 @@
+import RangePicker from '../../components/ui/RangePicker.jsx'
 import { useEffect, useState, useRef } from 'react'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js'
@@ -86,10 +87,10 @@ export default function NOCPage() {
     async function load() {
       try {
         const [s, e, iface, mac] = await Promise.all([
-          api.get(`/api/stats/noc?range=${range}`),
+          api.get(`/api/stats/noc?range=${range && range.value ? range.value : range}&from=${range && range.from ? range.from : ''}&to=${range && range.to ? range.to : ''}`),
           api.get(`/api/logs/events/recent?size=100&type=cisco`),
-          api.get(`/api/logs/interfaces?range=${range}`),
-          api.get(`/api/logs/macflap?range=${range}`),
+          api.get(`/api/logs/interfaces?range=${range && range.value ? range.value : range}&from=${range && range.from ? range.from : ''}&to=${range && range.to ? range.to : ''}`),
+          api.get(`/api/logs/macflap?range=${range && range.value ? range.value : range}&from=${range && range.from ? range.from : ''}&to=${range && range.to ? range.to : ''}`),
         ])
         setStats(s.data)
         setEvents(e.data)
@@ -147,16 +148,7 @@ export default function NOCPage() {
             }}>{t.label}</button>
           ))}
         </div>
-        <div style={{ display:'flex', gap:4 }}>
-          {['1h','6h','24h','7d'].map(r => (
-            <button key={r} onClick={()=>setRange(r)} style={{
-              padding:'4px 10px', borderRadius:6, fontSize:11, fontFamily:'var(--mono)',
-              border:'1px solid var(--border)', cursor:'pointer',
-              background: range===r ? C.cyan : 'var(--bg3)',
-              color: range===r ? '#0a0c10' : C.text2,
-            }}>{r}</button>
-          ))}
-        </div>
+        <RangePicker range={range} onChange={setRange} accentColor='#22d3ee' />
       </div>
 
       {/* -- OVERVIEW -- */}
@@ -171,7 +163,7 @@ export default function NOCPage() {
             <KPI label="Sites"            value={stats?.sites?.length||0}                sub="active locations"      color="purple" />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:12 }}>
-            <Card title="INTERFACE UP/DOWN TIMELINE" badge={range.toUpperCase()} badgeClass="cyan" height={200}>
+            <Card title="INTERFACE UP/DOWN TIMELINE" badge={(range && range.label ? range.label : range || '24h').toUpperCase()} badgeClass="cyan" height={200}>
               {ifaceData.timeline.length > 0
                 ? <Line data={interfaceTimeline} options={{ ...co, plugins:{ legend:{ display:true, labels:{ color:C.text2, font:{ size:10 }, boxWidth:10 } } } }} />
                 : <div style={{ color:C.text3, fontSize:11, fontFamily:'var(--mono)', textAlign:'center', paddingTop:80 }}>No interface events</div>
@@ -224,7 +216,7 @@ export default function NOCPage() {
             <KPI label="Affected Switches" value={ifaceData.top_devices.length}                                     sub="devices"            color="cyan"   />
             <KPI label="Line Protocol"     value={updownEvents.filter(e=>e.cisco_facility==='%LINEPROTO').length}   sub="proto changes"      color="purple" />
           </div>
-          <Card title="INTERFACE UP/DOWN TIMELINE" badge={range.toUpperCase()} badgeClass="cyan" height={220}>
+          <Card title="INTERFACE UP/DOWN TIMELINE" badge={(range && range.label ? range.label : range || '24h').toUpperCase()} badgeClass="cyan" height={220}>
             {ifaceData.timeline.length > 0
               ? <Line data={interfaceTimeline} options={{ ...co, plugins:{ legend:{ display:true, labels:{ color:C.text2, font:{ size:10 }, boxWidth:10 } } } }} />
               : <div style={{ color:C.text3, fontSize:11, fontFamily:'var(--mono)', textAlign:'center', paddingTop:90 }}>No interface events</div>
@@ -461,3 +453,5 @@ export default function NOCPage() {
     </div>
   )
 }
+
+

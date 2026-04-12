@@ -1,3 +1,4 @@
+import RangePicker from '../../components/ui/RangePicker.jsx'
 import { useEffect, useState, useRef } from 'react'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js'
@@ -95,8 +96,8 @@ export default function SOCPage() {
     async function load() {
       try {
         const [s,t,th,d,e,se] = await Promise.all([
-          api.get(`/api/stats/soc?range=${range}`),
-          api.get(`/api/logs/traffic/timeline?range=${range}`),
+          api.get(`/api/stats/soc?range=${range && range.value ? range.value : range}&from=${range && range.from ? range.from : ''}&to=${range && range.to ? range.to : ''}`),
+          api.get(`/api/logs/traffic/timeline?range=${range && range.value ? range.value : range}&from=${range && range.from ? range.from : ''}&to=${range && range.to ? range.to : ''}`),
           api.get('/api/logs/threats/top'),
           api.get('/api/logs/denied'),
           api.get('/api/logs/events/recent?size=50'),
@@ -185,7 +186,7 @@ export default function SOCPage() {
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:12 }}>
-            <Card title="SESSION VOLUME TREND" badge={range.toUpperCase()} height={200}>
+            <Card title="SESSION VOLUME TREND" badge={(range && range.label ? range.label : range || '24h').toUpperCase()} height={200}>
               <Line data={timelineData} options={{ ...co, plugins:{ legend:{ display:true, labels:{ color:C.text2, font:{ size:10 }, boxWidth:10 } } } }} />
             </Card>
             <Card title="SEVERITY BREAKDOWN" badge="ALERTS" badgeClass="red" height={200}>
@@ -265,7 +266,7 @@ export default function SOCPage() {
             <KPI label="Unique Apps"    value={new Set(sessions.map(s=>s.fgt?.app||s['fgt.app'])).size||'—'} sub="applications" color="amber" />
           </div>
 
-          <Card title="TRAFFIC TIMELINE" badge={range.toUpperCase()} height={220}>
+          <Card title="TRAFFIC TIMELINE" badge={(range && range.label ? range.label : range || '24h').toUpperCase()} height={220}>
             <Line data={timelineData} options={{ ...co, plugins:{ legend:{ display:true, labels:{ color:C.text2, font:{ size:10 }, boxWidth:10 } } } }} />
           </Card>
 
@@ -534,3 +535,6 @@ export default function SOCPage() {
     </div>
   )
 }
+
+
+
