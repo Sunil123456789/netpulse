@@ -1,5 +1,3 @@
-import axios from 'axios'
-
 class ZabbixClient {
   constructor() {
     this.token = null
@@ -12,21 +10,31 @@ class ZabbixClient {
 
   async call(method, params) {
     if (!this.url) throw new Error('ZABBIX_URL not configured')
-    const body = {
+    const body = JSON.stringify({
       jsonrpc: '2.0',
       method,
       params,
       id: 1,
       auth: method === 'user.login' ? null : this.token,
-    }
-    const response = await axios.post(this.url, body, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 10000,
     })
-    if (response.data.error) {
-      throw new Error(`Zabbix error [${method}]: ${response.data.error.data || response.data.error.message}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10000)
+    let response
+    try {
+      response = await fetch(this.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timer)
     }
-    return response.data.result
+    const data = await response.json()
+    if (data.error) {
+      throw new Error(`Zabbix error [${method}]: ${data.error.data || data.error.message}`)
+    }
+    return data.result
   }
 
   async login() {
