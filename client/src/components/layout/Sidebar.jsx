@@ -6,6 +6,7 @@ const nav = [
   { to:'/soc',     label:'SOC',     icon:'⚡' },
   { to:'/noc',     label:'NOC',     icon:'🌐' },
   { to:'/edr',     label:'EDR',     icon:'🛡️' },
+  { to:'/zabbix',  label:'Infrastructure', icon:'🖥️' },
   { to:'/tickets', label:'Tickets', icon:'🎫' },
   { to:'/ai',      label:'AI',      icon:'🤖' },
   { to:'/reports', label:'Reports', icon:'📊' },

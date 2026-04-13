@@ -10,6 +10,7 @@ import ReportsPage from './pages/Reports/ReportsPage'
 import AIPage from './pages/AI/AIPage'
 import EDRPage from './pages/EDR/EDRPage'
 import HomePage from './pages/Home/HomePage'
+import ZabbixPage from './pages/Zabbix/ZabbixPage'
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
   return token ? children : <Navigate to="/login" replace />
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="ai"      element={<AIPage />} />
         <Route path="edr"     element={<EDRPage />} />
+        <Route path="zabbix"  element={<ZabbixPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
