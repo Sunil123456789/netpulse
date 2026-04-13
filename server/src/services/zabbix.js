@@ -38,14 +38,18 @@ class ZabbixClient {
   }
 
   async login() {
-    this.token = await this.call('user.login', { user: this.user, password: this.password })
+    // Zabbix < 5.4 uses "user", >= 5.4 uses "username" — send both for compatibility
+    this.token = await this.call('user.login', { user: this.user, username: this.user, password: this.password })
     this.tokenExpiry = Date.now() + 25 * 60 * 1000
   }
 
   async ensureAuth() {
-    if (!this.token || Date.now() >= this.tokenExpiry) {
-      await this.login()
+    if (this.token && Date.now() < this.tokenExpiry) return
+    // Prevent concurrent logins — queue all callers behind one login attempt
+    if (!this._loginPromise) {
+      this._loginPromise = this.login().finally(() => { this._loginPromise = null })
     }
+    await this._loginPromise
   }
 
   async getHosts() {
