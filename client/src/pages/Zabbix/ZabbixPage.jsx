@@ -1,67 +1,60 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { Line } from 'react-chartjs-2'
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js'
+import { useEffect, useState } from 'react'
 import { zabbixAPI } from '../../api/zabbix'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
-
 const C = { accent:'#4f7ef5', accent2:'#7c5cfc', green:'#22d3a0', red:'#f5534f', amber:'#f5a623', cyan:'#22d3ee', text:'#e8eaf2', text2:'#8b90aa', text3:'#555a72' }
-const AMBER = C.amber
 
 const TABS = [
   { id:'overview', label:'Overview' },
-  { id:'hosts',    label:'Hosts' },
+  { id:'hosts',    label:'Hosts'    },
   { id:'problems', label:'Problems' },
-  { id:'groups',   label:'Groups' },
-  { id:'events',   label:'Events' },
+  { id:'groups',   label:'Groups'   },
+  { id:'events',   label:'Events'   },
 ]
 
-const SEV_COLOR   = ['#8b90aa', C.cyan, C.amber, '#f5a033', C.red, '#c0392b']
-const SEV_CLASS   = ['blue',    'cyan',  'amber',  'amber',  'red', 'red']
-const SEV_LABELS  = ['Not classified','Info','Warning','Average','High','Disaster']
-
-function sevColor(n) { return SEV_COLOR[n] ?? C.text3 }
-function sevClass(n) { return SEV_CLASS[n] ?? 'blue' }
-function sevLabel(n) { return SEV_LABELS[n] ?? 'Unknown' }
+// severity 0-5
+const SEV_LABEL = ['Not classified', 'Info', 'Warning', 'Average', 'High', 'Disaster']
+const SEV_COLOR = [C.text3, C.text3, C.accent, C.amber, C.amber, C.red]
+const SEV_CLASS = ['blue', 'blue', 'blue', 'amber', 'amber', 'red']
+const sevLabel = n => SEV_LABEL[n] ?? 'Unknown'
+const sevColor = n => SEV_COLOR[n] ?? C.text3
+const sevClass = n => SEV_CLASS[n] ?? 'blue'
 
 function fmtDuration(secs) {
   if (!secs && secs !== 0) return '—'
-  const h = Math.floor(secs / 3600)
+  const d = Math.floor(secs / 86400)
+  const h = Math.floor((secs % 86400) / 3600)
   const m = Math.floor((secs % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h`
   if (h > 0) return `${h}h ${m}m`
   return `${m}m`
 }
 
-function fmtUptime(secs) {
-  if (!secs) return '—'
-  const d = Math.floor(secs / 86400)
-  const h = Math.floor((secs % 86400) / 3600)
-  if (d > 0) return `${d}d ${h}h`
-  return `${h}h`
+function metricColor(v) {
+  if (v === null || v === undefined) return C.text3
+  return v >= 90 ? C.red : v >= 70 ? C.amber : C.green
 }
 
-function availDot(available, size = 8) {
-  const color = available === 1 ? C.green : available === 2 ? C.red : C.amber
-  const pulse = available === 2
+function StatusDot({ available }) {
+  const c = available === 1 ? C.green : available === 2 ? C.red : C.amber
   return (
     <div style={{
-      width: size, height: size, borderRadius: '50%', background: color, flexShrink: 0,
-      boxShadow: pulse ? `0 0 6px ${C.red}` : undefined,
-      animation: pulse ? 'pulse 1.5s infinite' : undefined,
+      width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0,
+      animation: available === 2 ? 'pulse 1.5s infinite' : undefined,
+      boxShadow: available === 2 ? `0 0 4px ${C.red}` : undefined,
     }} />
   )
 }
 
-function MetricBar({ value, label }) {
+function MetricBar({ label, value }) {
   const v = value ?? null
-  const color = v === null ? C.text3 : v >= 90 ? C.red : v >= 70 ? C.amber : C.green
+  const c = metricColor(v)
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-      <span style={{ fontSize:9, fontFamily:'var(--mono)', color: C.text3, width:32, flexShrink:0 }}>{label}</span>
+      <span style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3, width:28, flexShrink:0 }}>{label}</span>
       <div style={{ flex:1, height:4, background:'var(--bg4)', borderRadius:2, overflow:'hidden' }}>
-        <div style={{ width:`${Math.min(v ?? 0, 100)}%`, height:'100%', background: color, borderRadius:2, transition:'width 0.3s' }} />
+        <div style={{ width:`${Math.min(v ?? 0, 100)}%`, height:'100%', background:c, borderRadius:2, transition:'width 0.3s' }} />
       </div>
-      <span style={{ fontSize:9, fontFamily:'var(--mono)', color, width:30, textAlign:'right', flexShrink:0 }}>
+      <span style={{ fontSize:9, fontFamily:'var(--mono)', color:c, width:32, textAlign:'right', flexShrink:0 }}>
         {v !== null ? `${v}%` : '—'}
       </span>
     </div>
@@ -71,9 +64,9 @@ function MetricBar({ value, label }) {
 function KPI({ label, value, sub, color }) {
   const colors = { blue:C.accent, red:C.red, green:C.green, amber:C.amber, cyan:C.cyan, purple:C.accent2 }
   return (
-    <div className={`kpi ${color || 'blue'}`}>
+    <div className={`kpi ${color}`}>
       <div style={{ fontSize:10, fontWeight:600, color:C.text3, letterSpacing:1, textTransform:'uppercase', marginBottom:6, fontFamily:'var(--mono)' }}>{label}</div>
-      <div style={{ fontSize:24, fontWeight:700, lineHeight:1, marginBottom:4, color: colors[color] || C.accent }}>{value ?? '—'}</div>
+      <div style={{ fontSize:24, fontWeight:700, lineHeight:1, marginBottom:4, color:colors[color]||C.accent }}>{value ?? '—'}</div>
       <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>{sub}</div>
     </div>
   )
@@ -91,343 +84,299 @@ function Card({ title, badge, badgeClass='blue', height, children, noPad }) {
   )
 }
 
-function TabBar({ tab, setTab }) {
+function BarRows({ items, colorFn }) {
+  const max = Math.max(...items.map(i => i.count || 0), 1)
   return (
-    <div style={{ display:'flex', gap:2, borderBottom:'1px solid var(--border)', paddingBottom:0, flexShrink:0 }}>
-      {TABS.map(t => (
-        <button key={t.id} onClick={() => setTab(t.id)} style={{
-          padding:'8px 16px', border:'none', background:'transparent', cursor:'pointer',
-          fontSize:12, fontWeight:600, fontFamily:'var(--mono)',
-          color: tab === t.id ? AMBER : C.text3,
-          borderBottom: tab === t.id ? `2px solid ${AMBER}` : '2px solid transparent',
-          transition:'all 0.15s',
-        }}>{t.label}</button>
-      ))}
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      {items.map((item, i) => {
+        const val   = item.count || 0
+        const color = colorFn ? colorFn(i) : [C.red, C.amber, C.accent, C.cyan, C.green, C.accent2][i % 6]
+        return (
+          <div key={i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:11, fontFamily:'var(--mono)', color:C.text2, width:130, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {item.label || item.key || '—'}
+            </span>
+            <div style={{ flex:1, height:6, background:'var(--bg4)', borderRadius:3, overflow:'hidden' }}>
+              <div style={{ width:`${(val / max * 100).toFixed(0)}%`, height:'100%', background:color, borderRadius:3 }} />
+            </div>
+            <span style={{ fontSize:10, fontFamily:'var(--mono)', color:C.text3, width:50, textAlign:'right', flexShrink:0 }}>
+              {val.toLocaleString()}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-function SkeRow() {
-  return <div style={{ height:14, background:'var(--bg4)', borderRadius:4, marginBottom:8, opacity:0.5 }} />
-}
+export default function ZabbixPage() {
+  const [tab, setTab]           = useState('overview')
+  const [overview, setOverview] = useState(null)
+  const [hosts, setHosts]       = useState([])
+  const [problems, setProblems] = useState([])
+  const [groups, setGroups]     = useState([])
+  const [events, setEvents]     = useState([])
+  const [fetchError, setFetchError] = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [lastRefresh, setLastRefresh] = useState(null)
 
-function Skeleton() {
-  return <div style={{ padding:'12px 14px' }}>{[...Array(6)].map((_,i) => <SkeRow key={i} />)}</div>
-}
+  // Hosts tab filters
+  const [hostSearch, setHostSearch] = useState('')
+  const [hostStatus, setHostStatus] = useState('all')
 
-// ─── Tab 1: Overview ─────────────────────────────────────────────────────────
-function OverviewTab({ stats, events, loading }) {
-  const h = stats?.hosts   || {}
-  const p = stats?.problems || {}
+  // Problems tab filters
+  const [probSev, setProbSev] = useState('all')
+  const [probAck, setProbAck] = useState('all')
 
-  // Build hourly problem timeline from events
-  const hourlyMap = {}
-  for (let i = 23; i >= 0; i--) {
-    const key = new Date(Date.now() - i * 3_600_000)
-    key.setMinutes(0,0,0)
-    hourlyMap[key.toISOString()] = 0
-  }
-  for (const ev of events) {
-    const d = new Date(ev.clock * 1000)
-    d.setMinutes(0,0,0)
-    const k = d.toISOString()
-    if (hourlyMap[k] !== undefined) hourlyMap[k]++
-  }
-  const tlLabels = Object.keys(hourlyMap).map(k => new Date(k).toLocaleTimeString('en',{ hour:'2-digit', minute:'2-digit' }))
-  const tlData   = Object.values(hourlyMap)
+  // Events tab filter
+  const [evFilter, setEvFilter] = useState('all')
 
-  const timelineChart = {
-    labels: tlLabels,
-    datasets: [{
-      label: 'Problems', data: tlData,
-      borderColor: C.amber, backgroundColor: `${C.amber}22`, fill: true,
-      tension: 0.4, pointRadius: 0, borderWidth: 1.5,
-    }],
-  }
-  const chartOpts = {
-    responsive:true, maintainAspectRatio:false,
-    plugins:{ legend:{ display:false } },
-    scales:{
-      x:{ ticks:{ color:C.text3, font:{ size:8 }, maxTicksLimit:8 }, grid:{ color:'rgba(99,120,200,0.07)' } },
-      y:{ ticks:{ color:C.text3, font:{ size:9 } }, grid:{ color:'rgba(99,120,200,0.07)' } },
-    },
-  }
+  useEffect(() => {
+    async function load() {
+      try {
+        const [ov, hs, pr, gr, ev] = await Promise.all([
+          zabbixAPI.getOverview(),
+          zabbixAPI.getHosts(),
+          zabbixAPI.getProblems(),
+          zabbixAPI.getGroups(),
+          zabbixAPI.getEvents(),
+        ])
+        setOverview(ov.data)
+        setHosts(hs.data    || [])
+        setProblems(pr.data || [])
+        setGroups(gr.data   || [])
+        setEvents(ev.data   || [])
+        setFetchError(ov.data?.connected === false ? (ov.data.error || 'Zabbix unreachable') : null)
+        setLastRefresh(new Date().toLocaleTimeString())
+      } catch (err) {
+        setFetchError(err.response?.data?.error || err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  }, [])
 
-  const hostStatusColor = h.down > 2 ? C.red : h.down > 0 ? C.amber : C.green
-  const probStatusColor = (p.critical > 0 || p.high > 0) ? C.red : (p.average > 0 || p.warning > 0) ? C.amber : C.green
+  const h = overview?.hosts    || {}
+  const p = overview?.problems || {}
 
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-      {/* KPI Row */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10 }}>
-        <KPI label="Hosts Up"       value={h.up}           color="green" sub="monitored" />
-        <KPI label="Hosts Down"     value={h.down}         color={h.down > 0 ? 'red' : 'green'} sub="unreachable" />
-        <KPI label="Active Problems" value={p.total}       color={p.total > 0 ? 'red' : 'green'} sub="open" />
-        <KPI label="Critical/Disaster" value={(p.critical||0)} color={p.critical > 0 ? 'red' : 'green'} sub="severity 4-5" />
-        <KPI label="Host Groups"    value={stats?.groups}  color="blue"  sub="groups" />
-        <KPI label="Maintenance"    value={h.maintenance}  color="amber" sub="hosts" />
-      </div>
-
-      {/* Status Summary Cards */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-        {/* Hosts Health */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Host Health</span>
-            <div style={{ width:8, height:8, borderRadius:'50%', background: hostStatusColor, boxShadow:`0 0 6px ${hostStatusColor}` }} />
-          </div>
-          <div style={{ padding:'12px 14px' }}>
-            <div style={{ fontSize:32, fontWeight:700, color: hostStatusColor, lineHeight:1, marginBottom:8 }}>
-              {h.up ?? 0}<span style={{ fontSize:16, color:C.text3, fontWeight:400 }}>/{h.total ?? 0}</span>
-            </div>
-            <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)', marginBottom:10 }}>hosts online</div>
-            {/* Mini bar */}
-            <div style={{ height:8, background:'var(--bg4)', borderRadius:4, overflow:'hidden', display:'flex' }}>
-              <div style={{ width:`${((h.up||0)/(h.total||1))*100}%`, background:C.green }} />
-              <div style={{ width:`${((h.unknown||0)/(h.total||1))*100}%`, background:C.amber }} />
-              <div style={{ width:`${((h.down||0)/(h.total||1))*100}%`, background:C.red }} />
-            </div>
-            <div style={{ display:'flex', gap:12, marginTop:6 }}>
-              {[{l:'Up',c:C.green,v:h.up},{l:'Unknown',c:C.amber,v:h.unknown},{l:'Down',c:C.red,v:h.down}].map(x => (
-                <div key={x.l} style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, fontFamily:'var(--mono)' }}>
-                  <div style={{ width:6, height:6, borderRadius:'50%', background:x.c }} />
-                  <span style={{ color:C.text3 }}>{x.l}</span>
-                  <span style={{ color:x.c, fontWeight:600 }}>{x.v ?? 0}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Problems */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Active Problems</span>
-            <div style={{ width:8, height:8, borderRadius:'50%', background: probStatusColor, boxShadow:`0 0 6px ${probStatusColor}` }} />
-          </div>
-          <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:6 }}>
-            {[{l:'Disaster',v:p.critical,c:C.red},{l:'High',v:p.high,c:C.red},{l:'Average',v:p.average,c:C.amber},{l:'Warning',v:p.warning,c:C.amber},{l:'Info',v:p.info,c:C.cyan}].map(x => (
-              <div key={x.l} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span className={`badge badge-${x.v>0 ? (x.c===C.red?'red':'amber') : 'blue'}`} style={{ fontSize:9 }}>{x.l}</span>
-                <span style={{ fontSize:14, fontWeight:700, color: x.v > 0 ? x.c : C.text3, fontFamily:'var(--mono)' }}>{x.v ?? 0}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Infrastructure */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Infrastructure</span>
-            <span className={`badge badge-blue`}>{stats?.groups ?? 0} groups</span>
-          </div>
-          <div style={{ padding:'12px 14px' }}>
-            <div style={{ fontSize:28, fontWeight:700, color:C.accent, marginBottom:4 }}>{stats?.groups ?? 0}</div>
-            <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)', marginBottom:10 }}>host groups total</div>
-            <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>
-              Last refreshed: {new Date().toLocaleTimeString()}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Problems Timeline */}
-      <Card title="Problems — Last 24 Hours" height={180}>
-        {loading
-          ? <Skeleton />
-          : <Line data={timelineChart} options={chartOpts} />
-        }
-      </Card>
-
-      {/* Top Problems */}
-      <Card title="Recent Problems" badge={events.length} badgeClass="amber" noPad>
-        <div style={{ maxHeight:280, overflowY:'auto' }}>
-          {events.length === 0
-            ? <div style={{ padding:20, textAlign:'center', color:C.text3, fontSize:12 }}>No active problems</div>
-            : events.slice(0,10).map((ev, i) => (
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'80px 1fr auto auto', alignItems:'center', gap:8, padding:'7px 14px', borderBottom:'1px solid var(--border)', fontSize:11 }}>
-                <span className={`badge badge-${sevClass(ev.severity)}`} style={{ fontSize:9, textAlign:'center' }}>{sevLabel(ev.severity)}</span>
-                <div>
-                  <div style={{ color:C.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.name}</div>
-                  <div style={{ color:C.text3, fontSize:9, fontFamily:'var(--mono)' }}>{ev.host}</div>
-                </div>
-                <span style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)', whiteSpace:'nowrap' }}>{fmtDuration(ev.duration)}</span>
-                <span style={{ color: ev.acknowledged ? C.green : C.red, fontSize:13 }}>{ev.acknowledged ? '✓' : '✗'}</span>
-              </div>
-            ))
-          }
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-// ─── Tab 2: Hosts ─────────────────────────────────────────────────────────────
-function HostsTab({ hosts, groups, loading }) {
-  const [search, setSearch] = useState('')
-  const [groupFilter, setGroupFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-
-  const filtered = hosts.filter(h => {
-    if (search && !h.name.toLowerCase().includes(search.toLowerCase()) && !h.ip.includes(search)) return false
-    if (groupFilter !== 'all' && !h.groups.includes(groupFilter)) return false
-    if (statusFilter === 'up'      && h.available !== 1) return false
-    if (statusFilter === 'down'    && h.available !== 2) return false
-    if (statusFilter === 'unknown' && h.available !== 0) return false
+  const filteredHosts = hosts.filter(host => {
+    if (hostSearch && !host.name.toLowerCase().includes(hostSearch.toLowerCase()) && !host.ip.includes(hostSearch)) return false
+    if (hostStatus === 'up'      && host.available !== 1) return false
+    if (hostStatus === 'down'    && host.available !== 2) return false
+    if (hostStatus === 'unknown' && host.available !== 0) return false
     return true
   })
 
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      {/* Toolbar */}
-      <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-        <input
-          placeholder="Search hostname or IP…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ flex:1, minWidth:180, background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', color:C.text, fontSize:11, fontFamily:'var(--mono)', outline:'none' }}
-        />
-        <select value={groupFilter} onChange={e => setGroupFilter(e.target.value)}
-          style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', color:C.text, fontSize:11, fontFamily:'var(--mono)', cursor:'pointer' }}>
-          <option value="all">All Groups</option>
-          {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
-        </select>
-        <div style={{ display:'flex', gap:4 }}>
-          {[['all','All'],['up','Up'],['down','Down'],['unknown','Unknown']].map(([v,l]) => (
-            <button key={v} onClick={() => setStatusFilter(v)} style={{
-              padding:'5px 10px', border:`1px solid ${statusFilter===v ? AMBER : 'var(--border)'}`,
-              borderRadius:6, background: statusFilter===v ? `${AMBER}22` : 'var(--bg3)',
-              color: statusFilter===v ? AMBER : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
-            }}>{l}</button>
-          ))}
+  const filteredProblems = problems.filter(prob => {
+    if (probSev !== 'all' && prob.severity !== +probSev) return false
+    if (probAck === 'ack'   && !prob.acknowledged) return false
+    if (probAck === 'unack' &&  prob.acknowledged) return false
+    return true
+  })
+
+  const filteredEvents = events.filter(ev => {
+    if (evFilter === 'ack'     && !ev.acknowledged) return false
+    if (evFilter === 'problem' &&  ev.acknowledged) return false
+    return true
+  })
+
+  // ── Tab 1: Overview ─────────────────────────────────────────────────────────
+  function renderOverview() {
+    const probBars = [
+      { label:'Disaster', count: p.disaster || 0 },
+      { label:'High',     count: p.high     || 0 },
+      { label:'Average',  count: p.average  || 0 },
+      { label:'Warning',  count: p.warning  || 0 },
+      { label:'Info',     count: p.info     || 0 },
+    ]
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        {/* KPI row */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10 }}>
+          <KPI label="Hosts Up"       value={h.up}      color="green" sub="available" />
+          <KPI label="Hosts Down"     value={h.down}    color={h.down > 0 ? 'red' : 'green'} sub="unreachable" />
+          <KPI label="Unknown"        value={h.unknown} color="amber" sub="no data" />
+          <KPI label="Active Problems" value={p.total}  color={p.total > 0 ? 'red' : 'green'} sub="open" />
+          <KPI label="Disaster / High" value={(p.disaster||0)+(p.high||0)} color={(p.disaster||0)+(p.high||0)>0?'red':'green'} sub="critical" />
+          <KPI label="Host Groups"    value={overview?.groups} color="blue" sub="groups" />
         </div>
-        <span style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>{filtered.length} hosts</span>
-      </div>
 
-      {loading ? <Skeleton /> : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:10 }}>
-          {filtered.map(h => {
-            const borderColor = h.available === 2 ? C.red : h.problems > 0 ? C.amber : 'var(--border)'
-            return (
-              <div key={h.id} style={{ background:'var(--bg2)', border:`1px solid ${borderColor}`, borderRadius:10, padding:'12px 14px' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                  {availDot(h.available)}
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:C.cyan, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</div>
-                    <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>{h.ip || '—'}</div>
+        {/* Host health + problem breakdown */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <Card title="Host Health">
+            <div>
+              {/* ratio bar */}
+              <div style={{ display:'flex', height:10, borderRadius:5, overflow:'hidden', marginBottom:10, gap:2 }}>
+                <div style={{ flex: h.up      || 0, background: C.green, minWidth: h.up      ? 4 : 0 }} />
+                <div style={{ flex: h.unknown || 0, background: C.amber, minWidth: h.unknown ? 4 : 0 }} />
+                <div style={{ flex: h.down    || 0, background: C.red,   minWidth: h.down    ? 4 : 0 }} />
+              </div>
+              <div style={{ display:'flex', gap:16 }}>
+                {[{l:'Up',c:C.green,v:h.up},{l:'Unknown',c:C.amber,v:h.unknown},{l:'Down',c:C.red,v:h.down}].map(x => (
+                  <div key={x.l} style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, fontFamily:'var(--mono)' }}>
+                    <div style={{ width:6, height:6, borderRadius:'50%', background:x.c }} />
+                    <span style={{ color:C.text3 }}>{x.l}</span>
+                    <span style={{ color:x.c, fontWeight:600 }}>{x.v ?? 0}</span>
                   </div>
-                  {h.problems > 0 && <span className="badge badge-red" style={{ fontSize:9 }}>{h.problems} problem{h.problems>1?'s':''}</span>}
-                </div>
+                ))}
+              </div>
+              <div style={{ marginTop:12, fontSize:22, fontWeight:700, color: h.down > 0 ? C.red : C.green }}>
+                {h.up ?? 0}
+                <span style={{ fontSize:13, fontWeight:400, color:C.text3 }}>/{h.total ?? 0} online</span>
+              </div>
+            </div>
+          </Card>
 
-                {/* Groups */}
-                {h.groups.length > 0 && (
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:8 }}>
-                    {h.groups.slice(0,3).map((g,i) => (
-                      <span key={i} style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3, background:'var(--bg4)', padding:'1px 6px', borderRadius:3 }}>{g}</span>
+          <Card title="Problems by Severity">
+            <BarRows items={probBars} colorFn={i => [C.red, C.amber, C.amber, C.accent, C.text3][i]} />
+          </Card>
+        </div>
+
+        {/* Recent active problems */}
+        <Card title="Active Problems" badge={problems.length} badgeClass="amber" noPad>
+          <div style={{ maxHeight:280, overflowY:'auto' }}>
+            {problems.length === 0
+              ? <div style={{ padding:20, textAlign:'center', color:C.text3, fontSize:12 }}>{loading ? 'Loading…' : 'No active problems'}</div>
+              : problems.slice(0, 10).map((pr, i) => (
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'90px 1fr 70px 20px', alignItems:'center', gap:8, padding:'7px 14px', borderBottom:'1px solid var(--border)' }}>
+                  <span className={`badge badge-${sevClass(pr.severity)}`} style={{ fontSize:9, textAlign:'center' }}>{sevLabel(pr.severity)}</span>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:11, color:C.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pr.name}</div>
+                    <div style={{ fontSize:9, color:C.text3, fontFamily:'var(--mono)' }}>{pr.host} • {fmtDuration(pr.duration)}</div>
+                  </div>
+                  <span style={{ fontSize:9, color:C.text3, fontFamily:'var(--mono)', textAlign:'right' }}>
+                    {new Date(pr.startedAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}
+                  </span>
+                  <span style={{ color:pr.acknowledged ? C.green : C.red, fontSize:12, textAlign:'center' }}>{pr.acknowledged ? '✓' : '✗'}</span>
+                </div>
+              ))
+            }
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // ── Tab 2: Hosts ─────────────────────────────────────────────────────────────
+  function renderHosts() {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        {/* toolbar */}
+        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+          <input
+            placeholder="Search hostname or IP…" value={hostSearch}
+            onChange={e => setHostSearch(e.target.value)}
+            style={{ flex:1, minWidth:180, background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', color:C.text, fontSize:11, fontFamily:'var(--mono)', outline:'none' }}
+          />
+          <div style={{ display:'flex', gap:4 }}>
+            {[['all','All'],['up','Up'],['down','Down'],['unknown','Unknown']].map(([v, l]) => (
+              <button key={v} onClick={() => setHostStatus(v)} style={{
+                padding:'5px 10px', border:`1px solid ${hostStatus===v ? C.amber : 'var(--border)'}`,
+                borderRadius:6, background:hostStatus===v ? `${C.amber}22` : 'var(--bg3)',
+                color:hostStatus===v ? C.amber : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
+              }}>{l}</button>
+            ))}
+          </div>
+          <span style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>{filteredHosts.length} hosts</span>
+        </div>
+
+        {/* host cards grid */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:10 }}>
+          {filteredHosts.map(host => {
+            const border = host.available === 2 ? C.red : host.problems > 0 ? C.amber : 'var(--border)'
+            return (
+              <div key={host.id} style={{ background:'var(--bg2)', border:`1px solid ${border}`, borderRadius:10, padding:'12px 14px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <StatusDot available={host.available} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.cyan, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{host.name}</div>
+                    <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>{host.ip || '—'}</div>
+                  </div>
+                  {host.problems > 0 && <span className="badge badge-red" style={{ fontSize:9 }}>{host.problems}</span>}
+                </div>
+                {host.groups.length > 0 && (
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:8 }}>
+                    {host.groups.slice(0, 3).map((g, i) => (
+                      <span key={i} style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3, background:'var(--bg4)', padding:'1px 5px', borderRadius:3 }}>{g}</span>
                     ))}
-                    {h.groups.length > 3 && <span style={{ fontSize:9, color:C.text3 }}>+{h.groups.length-3}</span>}
+                    {host.groups.length > 3 && <span style={{ fontSize:9, color:C.text3 }}>+{host.groups.length-3}</span>}
                   </div>
                 )}
-
-                {/* Metrics */}
-                {(h.metrics.cpu !== null || h.metrics.ram !== null || h.metrics.disk !== null) ? (
+                {(host.metrics.cpu !== null || host.metrics.ram !== null || host.metrics.disk !== null) ? (
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                    <MetricBar value={h.metrics.cpu}  label="CPU" />
-                    <MetricBar value={h.metrics.ram}  label="RAM" />
-                    <MetricBar value={h.metrics.disk} label="Disk" />
-                    {h.metrics.uptime !== null && (
-                      <div style={{ fontSize:9, color:C.text3, fontFamily:'var(--mono)', marginTop:2 }}>
-                        Uptime: {fmtUptime(h.metrics.uptime)}
-                      </div>
-                    )}
+                    <MetricBar label="CPU"  value={host.metrics.cpu}  />
+                    <MetricBar label="RAM"  value={host.metrics.ram}  />
+                    <MetricBar label="Disk" value={host.metrics.disk} />
                   </div>
                 ) : (
-                  <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)', textAlign:'center', padding:'6px 0' }}>No metrics available</div>
+                  <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)', textAlign:'center', padding:'6px 0' }}>No metrics</div>
                 )}
               </div>
             )
           })}
-          {filtered.length === 0 && (
-            <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.text3, fontSize:12, padding:40 }}>No hosts match filters</div>
+          {filteredHosts.length === 0 && (
+            <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.text3, fontSize:12, padding:40 }}>No hosts match filter</div>
           )}
         </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Tab 3: Problems ─────────────────────────────────────────────────────────
-function ProblemsTab({ problems, loading }) {
-  const [sevFilter, setSevFilter] = useState('all')
-  const [ackFilter, setAckFilter] = useState('all')
-
-  const filtered = problems.filter(p => {
-    if (sevFilter !== 'all' && p.severity !== parseInt(sevFilter)) return false
-    if (ackFilter === 'ack'   && !p.acknowledged) return false
-    if (ackFilter === 'unack' &&  p.acknowledged) return false
-    return true
-  })
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      {/* Filter row */}
-      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-        <div style={{ display:'flex', gap:3 }}>
-          {[['all','All'],[5,'Disaster'],[4,'High'],[3,'Average'],[2,'Warning'],[1,'Info']].map(([v,l]) => (
-            <button key={v} onClick={() => setSevFilter(String(v))} style={{
-              padding:'4px 10px', border:`1px solid ${sevFilter===String(v) ? sevColor(Number(v)||0) : 'var(--border)'}`,
-              borderRadius:5, background: sevFilter===String(v) ? `${sevColor(Number(v)||0)}22` : 'var(--bg3)',
-              color: sevFilter===String(v) ? sevColor(Number(v)||0) : C.text3,
-              fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
-            }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ display:'flex', gap:3 }}>
-          {[['all','All'],['unack','Unacknowledged'],['ack','Acknowledged']].map(([v,l]) => (
-            <button key={v} onClick={() => setAckFilter(v)} style={{
-              padding:'4px 10px', border:`1px solid ${ackFilter===v ? AMBER : 'var(--border)'}`,
-              borderRadius:5, background: ackFilter===v ? `${AMBER}22` : 'var(--bg3)',
-              color: ackFilter===v ? AMBER : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
-            }}>{l}</button>
-          ))}
-        </div>
-        <span className="badge badge-amber">{filtered.length}</span>
       </div>
+    )
+  }
 
-      {loading ? <Skeleton /> : (
+  // ── Tab 3: Problems ───────────────────────────────────────────────────────────
+  function renderProblems() {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:3 }}>
+            {[['all','All'],[5,'Disaster'],[4,'High'],[3,'Average'],[2,'Warning'],[1,'Info']].map(([v, l]) => (
+              <button key={v} onClick={() => setProbSev(String(v))} style={{
+                padding:'4px 10px', border:`1px solid ${probSev===String(v) ? sevColor(+v||0) : 'var(--border)'}`,
+                borderRadius:5, background:probSev===String(v) ? `${sevColor(+v||0)}22` : 'var(--bg3)',
+                color:probSev===String(v) ? sevColor(+v||0) : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
+              }}>{l}</button>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:3 }}>
+            {[['all','All'],['unack','Unacknowledged'],['ack','Acknowledged']].map(([v, l]) => (
+              <button key={v} onClick={() => setProbAck(v)} style={{
+                padding:'4px 10px', border:`1px solid ${probAck===v ? C.amber : 'var(--border)'}`,
+                borderRadius:5, background:probAck===v ? `${C.amber}22` : 'var(--bg3)',
+                color:probAck===v ? C.amber : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
+              }}>{l}</button>
+            ))}
+          </div>
+          <span className="badge badge-amber">{filteredProblems.length}</span>
+        </div>
+
         <div className="card" style={{ overflow:'hidden' }}>
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--border)' }}>
-                  {['Severity','Host','Problem','Duration','Since','Ack','Tags'].map(h => (
-                    <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:10, fontFamily:'var(--mono)', color:C.text3, fontWeight:600, letterSpacing:0.5, whiteSpace:'nowrap' }}>{h}</th>
+                  {['Severity','Host','Problem','Duration','Since','Ack'].map(col => (
+                    <th key={col} style={{ padding:'8px 12px', textAlign:'left', fontSize:10, fontFamily:'var(--mono)', color:C.text3, fontWeight:600, letterSpacing:0.5, whiteSpace:'nowrap' }}>{col}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0
-                  ? <tr><td colSpan={7} style={{ padding:30, textAlign:'center', color:C.text3, fontSize:12 }}>No problems match filters</td></tr>
-                  : filtered.map((p, i) => (
-                    <tr key={i} style={{ borderBottom:'1px solid var(--border)', background: p.severity >= 4 ? `${C.red}06` : p.severity === 3 ? `${C.amber}06` : 'transparent' }}>
+                {filteredProblems.length === 0
+                  ? <tr><td colSpan={6} style={{ padding:30, textAlign:'center', color:C.text3, fontSize:12 }}>No problems match filters</td></tr>
+                  : filteredProblems.map((pr, i) => (
+                    <tr key={i} style={{ borderBottom:'1px solid var(--border)', background: pr.severity >= 4 ? `${C.red}06` : pr.severity === 3 ? `${C.amber}06` : 'transparent' }}>
                       <td style={{ padding:'7px 12px' }}>
-                        <span className={`badge badge-${sevClass(p.severity)}`} style={{ fontSize:9 }}>{sevLabel(p.severity)}</span>
+                        <span className={`badge badge-${sevClass(pr.severity)}`} style={{ fontSize:9 }}>{sevLabel(pr.severity)}</span>
                       </td>
-                      <td style={{ padding:'7px 12px', fontFamily:'var(--mono)', color:C.cyan, whiteSpace:'nowrap' }}>{p.host || '—'}</td>
-                      <td style={{ padding:'7px 12px', color:C.text, maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</td>
-                      <td style={{ padding:'7px 12px', fontFamily:'var(--mono)', color:C.text3, whiteSpace:'nowrap' }}>{fmtDuration(p.duration)}</td>
+                      <td style={{ padding:'7px 12px', fontFamily:'var(--mono)', color:C.cyan, whiteSpace:'nowrap' }}>{pr.host || '—'}</td>
+                      <td style={{ padding:'7px 12px', color:C.text, maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pr.name}</td>
+                      <td style={{ padding:'7px 12px', fontFamily:'var(--mono)', color:C.text3, whiteSpace:'nowrap' }}>{fmtDuration(pr.duration)}</td>
                       <td style={{ padding:'7px 12px', fontFamily:'var(--mono)', color:C.text3, whiteSpace:'nowrap', fontSize:10 }}>
-                        {new Date(p.startedAt).toLocaleString('en',{ month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                        {new Date(pr.startedAt).toLocaleString('en',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
                       </td>
                       <td style={{ padding:'7px 12px', textAlign:'center' }}>
-                        <span style={{ color: p.acknowledged ? C.green : C.red, fontSize:14 }}>{p.acknowledged ? '✓' : '✗'}</span>
-                      </td>
-                      <td style={{ padding:'7px 12px' }}>
-                        <div style={{ display:'flex', gap:3, flexWrap:'wrap' }}>
-                          {p.tags.slice(0,3).map((t,j) => (
-                            <span key={j} style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3, background:'var(--bg4)', padding:'1px 5px', borderRadius:3 }}>
-                              {t.tag}{t.value ? `=${t.value}` : ''}
-                            </span>
-                          ))}
-                        </div>
+                        <span style={{ color:pr.acknowledged ? C.green : C.red, fontSize:14 }}>{pr.acknowledged ? '✓' : '✗'}</span>
                       </td>
                     </tr>
                   ))
@@ -436,209 +385,131 @@ function ProblemsTab({ problems, loading }) {
             </table>
           </div>
         </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Tab 4: Groups ────────────────────────────────────────────────────────────
-function GroupsTab({ groups, problems, loading, onFilterHosts }) {
-  const probByHost = {}
-  for (const p of problems) {
-    if (p.hostId) probByHost[p.hostId] = (probByHost[p.hostId] || 0) + 1
+      </div>
+    )
   }
 
-  return loading ? <Skeleton /> : (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:12 }}>
-      {groups.map(g => {
-        const groupProbs = g.hosts.reduce((acc, h) => acc + (probByHost[h.id] || 0), 0)
-        return (
-          <div key={g.id} className="card" style={{ cursor:'pointer' }} onClick={() => onFilterHosts(g.name)}>
+  // ── Tab 4: Groups ─────────────────────────────────────────────────────────────
+  function renderGroups() {
+    return (
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:12 }}>
+        {groups.map(g => (
+          <div key={g.id} className="card">
             <div className="card-header">
-              <span className="card-title" style={{ color:C.text }}>{g.name}</span>
-              {groupProbs > 0 && <span className="badge badge-red" style={{ fontSize:9 }}>{groupProbs} problems</span>}
+              <span className="card-title">{g.name}</span>
+              {g.problems > 0 && <span className="badge badge-red" style={{ fontSize:9 }}>{g.problems} problems</span>}
             </div>
             <div style={{ padding:'10px 14px' }}>
               <div style={{ fontSize:22, fontWeight:700, color:C.accent, marginBottom:8 }}>
                 {g.hostCount} <span style={{ fontSize:11, fontWeight:400, color:C.text3 }}>hosts</span>
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                {g.hosts.slice(0,5).map((h, i) => (
+                {g.hosts.slice(0, 5).map((host, i) => (
                   <div key={i} style={{ display:'flex', alignItems:'center', gap:6, fontSize:11 }}>
-                    {availDot(h.available, 6)}
-                    <span style={{ color:C.text2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</span>
+                    <StatusDot available={host.available} />
+                    <span style={{ color:C.text2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{host.name}</span>
                   </div>
                 ))}
                 {g.hostCount > 5 && <div style={{ fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>+{g.hostCount-5} more</div>}
               </div>
             </div>
           </div>
-        )
-      })}
-      {groups.length === 0 && <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.text3, padding:40 }}>No groups</div>}
-    </div>
-  )
-}
-
-// ─── Tab 5: Events ────────────────────────────────────────────────────────────
-function EventsTab({ events, loading, lastUpdated }) {
-  const [filter, setFilter] = useState('all')
-
-  const filtered = events.filter(ev => {
-    if (filter === 'ack'      && !ev.acknowledged) return false
-    if (filter === 'problem'  && ev.acknowledged)  return false
-    return true
-  })
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-        {[['all','All'],['problem','Problems'],['ack','Acknowledged']].map(([v,l]) => (
-          <button key={v} onClick={() => setFilter(v)} style={{
-            padding:'5px 12px', border:`1px solid ${filter===v ? AMBER : 'var(--border)'}`,
-            borderRadius:6, background: filter===v ? `${AMBER}22` : 'var(--bg3)',
-            color: filter===v ? AMBER : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
-          }}>{l}</button>
         ))}
-        <span style={{ marginLeft:'auto', fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>
-          Last updated: {lastUpdated || '—'}
-        </span>
+        {groups.length === 0 && (
+          <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.text3, fontSize:12, padding:40 }}>No groups</div>
+        )}
       </div>
+    )
+  }
 
-      {loading ? <Skeleton /> : (
-        <Card title="Recent Events — Last 24h" badge={filtered.length} badgeClass="amber" noPad>
-          <div style={{ maxHeight:500, overflowY:'auto' }}>
-            {filtered.length === 0
+  // ── Tab 5: Events ─────────────────────────────────────────────────────────────
+  function renderEvents() {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          {[['all','All'],['problem','Problems'],['ack','Acknowledged']].map(([v, l]) => (
+            <button key={v} onClick={() => setEvFilter(v)} style={{
+              padding:'5px 12px', border:`1px solid ${evFilter===v ? C.amber : 'var(--border)'}`,
+              borderRadius:6, background:evFilter===v ? `${C.amber}22` : 'var(--bg3)',
+              color:evFilter===v ? C.amber : C.text3, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer',
+            }}>{l}</button>
+          ))}
+          <span style={{ marginLeft:'auto', fontSize:10, color:C.text3, fontFamily:'var(--mono)' }}>
+            Last 24 hours • {filteredEvents.length} events
+          </span>
+        </div>
+
+        <Card title="Recent Events" badge={filteredEvents.length} badgeClass="amber" noPad>
+          <div style={{ maxHeight:520, overflowY:'auto' }}>
+            {filteredEvents.length === 0
               ? <div style={{ padding:30, textAlign:'center', color:C.text3, fontSize:12 }}>No events</div>
-              : filtered.map((ev, i) => {
-                const borderColor = ev.acknowledged ? C.amber : C.red
-                return (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:'90px 1fr 90px auto', alignItems:'center', gap:8, padding:'8px 14px', borderBottom:'1px solid var(--border)', borderLeft:`3px solid ${borderColor}` }}>
-                    <span style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3 }}>
-                      {new Date(ev.timestamp).toLocaleTimeString()}
-                    </span>
-                    <div>
-                      <div style={{ color:C.text, fontSize:11, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.name}</div>
-                      <div style={{ color:C.cyan, fontSize:10, fontFamily:'var(--mono)' }}>{ev.host}</div>
-                    </div>
-                    <span className={`badge badge-${sevClass(ev.severity)}`} style={{ fontSize:9, textAlign:'center' }}>{sevLabel(ev.severity)}</span>
-                    <span style={{ color: ev.acknowledged ? C.green : C.red, fontSize:13 }}>{ev.acknowledged ? '✓' : '✗'}</span>
+              : filteredEvents.map((ev, i) => (
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'90px 1fr 90px 20px', alignItems:'center', gap:8, padding:'8px 14px', borderBottom:'1px solid var(--border)', borderLeft:`3px solid ${ev.acknowledged ? C.amber : sevColor(ev.severity)}` }}>
+                  <span style={{ fontSize:9, fontFamily:'var(--mono)', color:C.text3 }}>
+                    {new Date(ev.timestamp).toLocaleTimeString()}
+                  </span>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:11, color:C.text, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.name}</div>
+                    <div style={{ fontSize:9, color:C.cyan, fontFamily:'var(--mono)' }}>{ev.host}</div>
                   </div>
-                )
-              })
+                  <span className={`badge badge-${sevClass(ev.severity)}`} style={{ fontSize:9, textAlign:'center' }}>{sevLabel(ev.severity)}</span>
+                  <span style={{ color:ev.acknowledged ? C.green : C.text3, fontSize:12, textAlign:'center' }}>{ev.acknowledged ? '✓' : ''}</span>
+                </div>
+              ))
             }
           </div>
         </Card>
-      )}
-    </div>
-  )
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
-export default function ZabbixPage() {
-  const [tab, setTab]           = useState('overview')
-  const [stats, setStats]       = useState(null)
-  const [hosts, setHosts]       = useState([])
-  const [problems, setProblems] = useState([])
-  const [groups, setGroups]     = useState([])
-  const [events, setEvents]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [connected, setConnected] = useState(true)
-  const [connError, setConnError] = useState(null)
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const [hostGroupFilter, setHostGroupFilter] = useState(null)
-  const timerRef = useRef(null)
-
-  const load = useCallback(async () => {
-    try {
-      const [statsRes, hostsRes, problemsRes, groupsRes, eventsRes] = await Promise.all([
-        zabbixAPI.getStats(),
-        zabbixAPI.getHosts(),
-        zabbixAPI.getProblems(),
-        zabbixAPI.getGroups(),
-        zabbixAPI.getEvents(),
-      ])
-      const s = statsRes.data
-      if (s.connected === false) {
-        setConnected(false)
-        setConnError(s.error || 'Zabbix unreachable')
-      } else {
-        setConnected(true)
-        setConnError(null)
-      }
-      setStats(s)
-      setHosts(hostsRes.data     || [])
-      setProblems(problemsRes.data || [])
-      setGroups(groupsRes.data   || [])
-      setEvents(eventsRes.data   || [])
-      setLastUpdated(new Date().toLocaleTimeString())
-    } catch (err) {
-      setConnected(false)
-      setConnError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    load()
-    timerRef.current = setInterval(load, 30_000)
-    return () => clearInterval(timerRef.current)
-  }, [load])
-
-  function handleFilterHosts(groupName) {
-    setHostGroupFilter(groupName)
-    setTab('hosts')
+      </div>
+    )
   }
 
-  // If groups tab triggers host filter, pass it down
-  const hostsWithFilter = hostGroupFilter
-    ? hosts.filter(h => h.groups.includes(hostGroupFilter))
-    : hosts
-
+  // ── Main render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', overflow:'hidden' }}>
-      {/* Connection banner */}
-      {!connected && (
-        <div style={{ background:`${C.red}22`, borderBottom:`1px solid ${C.red}44`, padding:'8px 20px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-          <div style={{ width:8, height:8, borderRadius:'50%', background:C.red }} />
+
+      {/* Error / disconnected banner */}
+      {fetchError && (
+        <div style={{ background:`${C.red}22`, borderBottom:`1px solid ${C.red}44`, padding:'7px 20px', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+          <div style={{ width:6, height:6, borderRadius:'50%', background:C.red, flexShrink:0 }} />
           <span style={{ fontSize:11, color:C.red, fontFamily:'var(--mono)', fontWeight:600 }}>Zabbix Unreachable</span>
-          <span style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>{connError}</span>
-          <button onClick={load} style={{ marginLeft:'auto', padding:'4px 12px', background:`${C.red}22`, border:`1px solid ${C.red}66`, borderRadius:6, color:C.red, fontSize:10, fontFamily:'var(--mono)', cursor:'pointer' }}>
-            Retry
-          </button>
+          <span style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>{fetchError}</span>
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ padding:'12px 20px 0', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ width:8, height:8, borderRadius:'50%', background: connected ? C.green : C.red, boxShadow: connected ? `0 0 6px ${C.green}` : `0 0 6px ${C.red}`, animation: connected ? 'pulse 2s infinite' : undefined }} />
-            <span style={{ fontSize:10, fontFamily:'var(--mono)', color: connected ? C.green : C.red }}>
-              {connected ? 'CONNECTED' : 'DISCONNECTED'}
+      {/* Status bar + tab bar */}
+      <div style={{ padding:'10px 20px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ width:7, height:7, borderRadius:'50%', background:fetchError ? C.red : C.green, boxShadow:`0 0 6px ${fetchError ? C.red : C.green}`, animation:'pulse 2s infinite' }} />
+            <span style={{ fontSize:10, fontFamily:'var(--mono)', color:fetchError ? C.red : C.green }}>
+              {fetchError ? 'DISCONNECTED' : 'CONNECTED'}
             </span>
-            {lastUpdated && <span style={{ fontSize:10, fontFamily:'var(--mono)', color:C.text3 }}>• Updated {lastUpdated}</span>}
+            {lastRefresh && <span style={{ fontSize:10, fontFamily:'var(--mono)', color:C.text3 }}>• Updated {lastRefresh}</span>}
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontFamily:'var(--mono)', color:C.text3 }}>
-            <span>Auto-refresh 30s</span>
-            {hostGroupFilter && (
-              <button onClick={() => { setHostGroupFilter(null); setTab('hosts') }} style={{ padding:'3px 8px', background:`${AMBER}22`, border:`1px solid ${AMBER}66`, borderRadius:4, color:AMBER, fontSize:9, fontFamily:'var(--mono)', cursor:'pointer' }}>
-                Group: {hostGroupFilter} ✕
-              </button>
-            )}
-          </div>
+          <span style={{ fontSize:10, fontFamily:'var(--mono)', color:C.text3 }}>Auto-refresh 30s</span>
         </div>
-        <TabBar tab={tab} setTab={t => { setTab(t); if (t !== 'hosts') setHostGroupFilter(null) }} />
+
+        {/* Tab bar — amber active color */}
+        <div style={{ display:'flex', gap:2, borderBottom:'1px solid var(--border)' }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding:'8px 16px', border:'none', background:'transparent', cursor:'pointer',
+              fontSize:12, fontWeight:600, fontFamily:'var(--mono)',
+              color: tab === t.id ? C.amber : C.text3,
+              borderBottom: tab === t.id ? `2px solid ${C.amber}` : '2px solid transparent',
+              transition:'all 0.15s',
+            }}>{t.label}</button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content */}
       <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
-        {tab === 'overview' && <OverviewTab stats={stats} events={events} loading={loading} />}
-        {tab === 'hosts'    && <HostsTab hosts={hostGroupFilter ? hostsWithFilter : hosts} groups={groups} loading={loading} />}
-        {tab === 'problems' && <ProblemsTab problems={problems} loading={loading} />}
-        {tab === 'groups'   && <GroupsTab groups={groups} problems={problems} loading={loading} onFilterHosts={handleFilterHosts} />}
-        {tab === 'events'   && <EventsTab events={events} loading={loading} lastUpdated={lastUpdated} />}
+        {tab === 'overview' && renderOverview()}
+        {tab === 'hosts'    && renderHosts()}
+        {tab === 'problems' && renderProblems()}
+        {tab === 'groups'   && renderGroups()}
+        {tab === 'events'   && renderEvents()}
       </div>
     </div>
   )
