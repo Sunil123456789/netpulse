@@ -2,11 +2,14 @@ class ZabbixClient {
   constructor() {
     this.token = null
     this.tokenExpiry = 0
+    this._loginPromise = null
   }
 
-  get url() { return process.env.ZABBIX_URL || '' }
-  get user() { return process.env.ZABBIX_USER || 'Admin' }
+  get url()      { return process.env.ZABBIX_URL      || '' }
+  get user()     { return process.env.ZABBIX_USER     || 'Admin' }
   get password() { return process.env.ZABBIX_PASSWORD || 'zabbix' }
+  // Static API token (Zabbix 5.4+) — if set, skip user.login entirely
+  get staticToken() { return process.env.ZABBIX_TOKEN || null }
 
   async call(method, params) {
     if (!this.url) throw new Error('ZABBIX_URL not configured')
@@ -44,6 +47,12 @@ class ZabbixClient {
   }
 
   async ensureAuth() {
+    // If a static API token is configured, use it directly — no login needed
+    if (this.staticToken) {
+      this.token = this.staticToken
+      this.tokenExpiry = Infinity
+      return
+    }
     if (this.token && Date.now() < this.tokenExpiry) return
     // Prevent concurrent logins — queue all callers behind one login attempt
     if (!this._loginPromise) {
