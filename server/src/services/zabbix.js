@@ -13,29 +13,37 @@ class ZabbixClient {
 
   async call(method, params) {
     if (!this.url) throw new Error('ZABBIX_URL not configured')
+
+    // Zabbix 5.4+: API tokens use Authorization: Bearer header, auth field must be null
+    // Older session tokens (from user.login) use the auth field
+    const usingStaticToken = this.staticToken && method !== 'user.login'
+    const headers = { 'Content-Type': 'application/json' }
+    if (usingStaticToken) headers['Authorization'] = `Bearer ${this.staticToken}`
+
     const body = JSON.stringify({
       jsonrpc: '2.0',
       method,
       params,
       id: 1,
-      auth: method === 'user.login' ? null : this.token,
+      auth: usingStaticToken ? null : (method === 'user.login' ? null : this.token),
     })
+
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 10000)
     let response
     try {
-      response = await fetch(this.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        signal: controller.signal,
-      })
+      response = await fetch(this.url, { method: 'POST', headers, body, signal: controller.signal })
     } finally {
       clearTimeout(timer)
     }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Zabbix returned HTTP ${response.status} with non-JSON response — check ZABBIX_URL path`)
+    }
     const data = await response.json()
     if (data.error) {
-      throw new Error(`Zabbix error [${method}]: ${data.error.data || data.error.message}`)
+      throw new Error(`Zabbix [${method}]: ${data.error.data || data.error.message}`)
     }
     return data.result
   }
