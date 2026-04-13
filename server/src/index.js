@@ -21,6 +21,7 @@ import alertRoutes from './routes/alerts.js'
 import aiRoutes from './routes/ai.js'
 import statsRoutes from './routes/stats.js'
 import edrRoutes from './routes/edr.js'
+import zabbixRoutes from './routes/zabbix.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authenticate } from './middleware/auth.js'
 
@@ -51,6 +52,7 @@ app.use('/api/alerts',  authenticate, alertRoutes)
 app.use('/api/ai',      authenticate, aiRoutes)
 app.use('/api/stats',   authenticate, statsRoutes)
 app.use('/api/edr',     authenticate, edrRoutes)
+app.use('/api/zabbix', authenticate, zabbixRoutes)
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '1.0.0', ai: process.env.AI_PROVIDER || 'claude' }))
 app.use(errorHandler)
 
