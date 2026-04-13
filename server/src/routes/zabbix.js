@@ -95,7 +95,7 @@ router.get('/hosts', async (_req, res) => {
     })
 
     res.json(result)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.json([]) }
 })
 
 // GET /api/zabbix/problems
@@ -119,7 +119,7 @@ router.get('/problems', async (_req, res) => {
         tags:         p.tags || [],
       }
     }))
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.json([]) }
 })
 
 // GET /api/zabbix/groups
@@ -145,7 +145,7 @@ router.get('/groups', async (_req, res) => {
       hostCount: hostsByGroup[g.groupid]?.length || 0,
       hosts:     (hostsByGroup[g.groupid] || []).slice(0, 8),
     })))
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.json([]) }
 })
 
 // GET /api/zabbix/events
@@ -163,9 +163,9 @@ router.get('/events', async (_req, res) => {
       timestamp:    new Date(parseInt(e.clock, 10) * 1000).toISOString(),
       acknowledged: e.acknowledged === '1',
       acknowledges: e.acknowledges || [],
-      value:        parseInt(e.value, 10), // 0=ok 1=problem
+      value:        parseInt(e.value, 10),
     })))
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.json([]) }
 })
 
 // GET /api/zabbix/host/:id/metrics
@@ -183,7 +183,7 @@ router.get('/host/:id/metrics', async (req, res) => {
       }
     }
     res.json(metrics)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.json({}) }
 })
 
 export default router
