@@ -2,188 +2,150 @@ import { Router } from 'express'
 import { zabbix } from '../services/zabbix.js'
 
 const router = Router()
+const SEV = ['Not classified', 'Info', 'Warning', 'Average', 'High', 'Disaster']
+const nowSecs = () => Math.floor(Date.now() / 1000)
+const configured = () => !!(process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN)
 
-const SEV_LABELS = ['Not classified', 'Info', 'Warning', 'Average', 'High', 'Disaster']
-
-function parseProblemSeverity(p) {
-  const s = parseInt(p.severity, 10)
-  return { num: s, label: SEV_LABELS[s] || 'Unknown' }
-}
-
-function durationSecs(clock) {
-  return Math.floor(Date.now() / 1000) - parseInt(clock, 10)
-}
-
-// GET /api/zabbix/stats
-router.get('/stats', async (_req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json({ connected: false, error: 'Not configured' })
+// GET /api/zabbix/overview — connection check + summary stats
+router.get('/overview', async (_req, res) => {
+  if (!configured()) return res.json({ connected: false, error: 'Not configured' })
   try {
     const [hosts, problems, groups] = await Promise.all([
       zabbix.getHosts(),
       zabbix.getProblems(),
-      zabbix.getHostGroups(),
+      zabbix.getGroups(),
     ])
 
-    const hostStats = { total: hosts.length, up: 0, down: 0, unknown: 0, maintenance: 0 }
-    for (const h of hosts) {
-      const a = parseInt(h.available, 10)
-      if (h.status === '1') { hostStats.maintenance++; continue }
-      if (a === 1) hostStats.up++
-      else if (a === 2) hostStats.down++
-      else hostStats.unknown++
+    const h = { total: hosts.length, up: 0, down: 0, unknown: 0 }
+    for (const host of hosts) {
+      const a = +host.available
+      if (a === 1) h.up++; else if (a === 2) h.down++; else h.unknown++
     }
 
-    const probStats = { total: problems.length, critical: 0, high: 0, average: 0, warning: 0, info: 0 }
-    for (const p of problems) {
-      const s = parseInt(p.severity, 10)
-      if (s >= 5) probStats.critical++
-      else if (s === 4) probStats.high++
-      else if (s === 3) probStats.average++
-      else if (s === 2) probStats.warning++
-      else probStats.info++
+    const p = { total: problems.length, disaster: 0, high: 0, average: 0, warning: 0, info: 0 }
+    for (const prob of problems) {
+      const s = +prob.severity
+      if (s === 5) p.disaster++; else if (s === 4) p.high++; else if (s === 3) p.average++
+      else if (s === 2) p.warning++; else p.info++
     }
 
-    res.json({ connected: true, hosts: hostStats, problems: probStats, groups: groups.length })
+    res.json({ connected: true, hosts: h, problems: p, groups: groups.length })
   } catch (err) {
     res.json({ connected: false, error: err.message })
   }
 })
 
-// GET /api/zabbix/hosts
+// GET /api/zabbix/hosts — all hosts enriched with metrics + problem counts
 router.get('/hosts', async (_req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json([])
+  if (!configured()) return res.json([])
   try {
-    const [hosts, problems, items] = await Promise.all([
+    const [hosts, problems, metrics] = await Promise.all([
       zabbix.getHosts(),
       zabbix.getProblems(),
-      zabbix.getHostMetrics([]).catch(() => []),
+      zabbix.getMetrics([]).catch(() => []),
     ])
 
-    // Build problem count per host
     const probByHost = {}
-    for (const p of problems) {
-      for (const h of (p.hosts || [])) {
+    for (const p of problems)
+      for (const h of (p.hosts || []))
         probByHost[h.hostid] = (probByHost[h.hostid] || 0) + 1
-      }
+
+    const mByHost = {}
+    for (const m of metrics) {
+      if (!mByHost[m.hostid]) mByHost[m.hostid] = {}
+      const v = parseFloat(m.lastvalue)
+      const k = m.key_
+      if (k === 'system.cpu.util')       mByHost[m.hostid].cpu   = isNaN(v) ? null : Math.round(v * 10) / 10
+      if (k === 'vm.memory.utilization') mByHost[m.hostid].ram   = isNaN(v) ? null : Math.round(v * 10) / 10
+      if (k.startsWith('vfs.fs.size'))   mByHost[m.hostid].disk  = isNaN(v) ? null : Math.round(v * 10) / 10
+      if (k === 'system.uptime')         mByHost[m.hostid].uptime = isNaN(v) ? null : v
     }
 
-    // Build metrics per host
-    const metricsByHost = {}
-    for (const item of items) {
-      if (!metricsByHost[item.hostid]) metricsByHost[item.hostid] = {}
-      const val = parseFloat(item.lastvalue)
-      const k = item.key_
-      if (k === 'system.cpu.util')       metricsByHost[item.hostid].cpu   = isNaN(val) ? null : Math.round(val * 10) / 10
-      if (k === 'vm.memory.utilization') metricsByHost[item.hostid].ram   = isNaN(val) ? null : Math.round(val * 10) / 10
-      if (k.startsWith('vfs.fs.size'))   metricsByHost[item.hostid].disk  = isNaN(val) ? null : Math.round(val * 10) / 10
-      if (k === 'system.uptime')         metricsByHost[item.hostid].uptime = isNaN(val) ? null : val
-    }
-
-    const result = hosts.map(h => {
-      const mainIface = (h.interfaces || []).find(i => i.main === '1') || h.interfaces?.[0] || {}
-      return {
-        id:       h.hostid,
-        name:     h.name || h.host,
-        ip:       mainIface.ip || '',
-        status:   parseInt(h.status, 10),   // 0=monitored, 1=unmonitored
-        available: parseInt(h.available, 10), // 0=unknown, 1=up, 2=down
-        groups:   (h.groups || []).map(g => g.name),
-        tags:     h.tags || [],
-        metrics:  metricsByHost[h.hostid] || { cpu: null, ram: null, disk: null, uptime: null },
-        problems: probByHost[h.hostid] || 0,
-      }
-    })
-
-    res.json(result)
+    res.json(hosts.map(h => ({
+      id:        h.hostid,
+      name:      h.name || h.host,
+      ip:        (h.interfaces || []).find(i => i.main === '1')?.ip || '',
+      available: +h.available,
+      status:    +h.status,
+      groups:    (h.groups || []).map(g => g.name),
+      metrics:   mByHost[h.hostid] || { cpu: null, ram: null, disk: null, uptime: null },
+      problems:  probByHost[h.hostid] || 0,
+    })))
   } catch (err) { res.json([]) }
 })
 
-// GET /api/zabbix/problems
+// GET /api/zabbix/problems — active problems
 router.get('/problems', async (_req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json([])
+  if (!configured()) return res.json([])
   try {
     const problems = await zabbix.getProblems()
-    res.json(problems.map(p => {
-      const { num, label } = parseProblemSeverity(p)
-      const secs = durationSecs(p.clock)
+    const ts = nowSecs()
+    res.json(problems.map(p => ({
+      id:            p.eventid,
+      name:          p.name,
+      severity:      +p.severity,
+      severityLabel: SEV[+p.severity] || 'Unknown',
+      host:          p.hosts?.[0]?.name  || '',
+      hostId:        p.hosts?.[0]?.hostid || '',
+      startedAt:     new Date(+p.clock * 1000).toISOString(),
+      duration:      ts - +p.clock,
+      acknowledged:  p.acknowledged === '1',
+      tags:          p.tags || [],
+    })))
+  } catch (err) { res.json([]) }
+})
+
+// GET /api/zabbix/groups — host groups with hosts + problem counts
+router.get('/groups', async (_req, res) => {
+  if (!configured()) return res.json([])
+  try {
+    const [groups, hosts, problems] = await Promise.all([
+      zabbix.getGroups(),
+      zabbix.getHosts(),
+      zabbix.getProblems(),
+    ])
+
+    const hostsByGroup = {}
+    for (const h of hosts)
+      for (const g of (h.groups || [])) {
+        if (!hostsByGroup[g.groupid]) hostsByGroup[g.groupid] = []
+        hostsByGroup[g.groupid].push({ id: h.hostid, name: h.name || h.host, available: +h.available })
+      }
+
+    const probByHost = {}
+    for (const p of problems)
+      for (const h of (p.hosts || []))
+        probByHost[h.hostid] = (probByHost[h.hostid] || 0) + 1
+
+    res.json(groups.map(g => {
+      const gh = hostsByGroup[g.groupid] || []
       return {
-        id:           p.eventid,
-        name:         p.name,
-        severity:     num,
-        severityLabel: label,
-        host:         p.hosts?.[0]?.name || '',
-        hostId:       p.hosts?.[0]?.hostid || '',
-        startedAt:    new Date(parseInt(p.clock, 10) * 1000).toISOString(),
-        duration:     secs,
-        acknowledged: p.acknowledged === '1',
-        tags:         p.tags || [],
+        id:        g.groupid,
+        name:      g.name,
+        hostCount: gh.length,
+        hosts:     gh.slice(0, 8),
+        problems:  gh.reduce((acc, h) => acc + (probByHost[h.id] || 0), 0),
       }
     }))
   } catch (err) { res.json([]) }
 })
 
-// GET /api/zabbix/groups
-router.get('/groups', async (_req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json([])
-  try {
-    const [groups, hosts] = await Promise.all([
-      zabbix.getHostGroups(),
-      zabbix.getHosts(),
-    ])
-
-    const hostsByGroup = {}
-    for (const h of hosts) {
-      for (const g of (h.groups || [])) {
-        if (!hostsByGroup[g.groupid]) hostsByGroup[g.groupid] = []
-        hostsByGroup[g.groupid].push({ id: h.hostid, name: h.name || h.host, available: parseInt(h.available, 10) })
-      }
-    }
-
-    res.json(groups.map(g => ({
-      id:        g.groupid,
-      name:      g.name,
-      hostCount: hostsByGroup[g.groupid]?.length || 0,
-      hosts:     (hostsByGroup[g.groupid] || []).slice(0, 8),
-    })))
-  } catch (err) { res.json([]) }
-})
-
-// GET /api/zabbix/events
+// GET /api/zabbix/events — recent events last 24h
 router.get('/events', async (_req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json([])
+  if (!configured()) return res.json([])
   try {
     const events = await zabbix.getEvents(24)
     res.json(events.map(e => ({
-      id:           e.eventid,
-      name:         e.name,
-      severity:     parseInt(e.severity, 10),
-      severityLabel: SEV_LABELS[parseInt(e.severity, 10)] || 'Unknown',
-      host:         e.hosts?.[0]?.name || '',
-      clock:        parseInt(e.clock, 10),
-      timestamp:    new Date(parseInt(e.clock, 10) * 1000).toISOString(),
-      acknowledged: e.acknowledged === '1',
-      acknowledges: e.acknowledges || [],
-      value:        parseInt(e.value, 10),
+      id:            e.eventid,
+      name:          e.name,
+      severity:      +e.severity,
+      severityLabel: SEV[+e.severity] || 'Unknown',
+      host:          e.hosts?.[0]?.name || '',
+      timestamp:     new Date(+e.clock * 1000).toISOString(),
+      clock:         +e.clock,
+      acknowledged:  e.acknowledged === '1',
     })))
   } catch (err) { res.json([]) }
-})
-
-// GET /api/zabbix/host/:id/metrics
-router.get('/host/:id/metrics', async (req, res) => {
-  if (!process.env.ZABBIX_URL) return res.json({})
-  try {
-    const items = await zabbix.getHostMetrics([req.params.id])
-    const metrics = {}
-    for (const item of items) {
-      metrics[item.key_] = {
-        name:      item.name,
-        value:     item.lastvalue,
-        units:     item.units,
-        lastclock: item.lastclock,
-      }
-    }
-    res.json(metrics)
-  } catch (err) { res.json({}) }
 })
 
 export default router
