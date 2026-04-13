@@ -18,7 +18,8 @@ router.get('/overview', async (_req, res) => {
 
     const h = { total: hosts.length, up: 0, down: 0, unknown: 0 }
     for (const host of hosts) {
-      const a = +host.available
+      const iface = (host.interfaces || []).find(i => i.main === '1')
+      const a = iface ? +iface.available : +host.available
       if (a === 1) h.up++; else if (a === 2) h.down++; else h.unknown++
     }
 
@@ -65,7 +66,7 @@ router.get('/hosts', async (_req, res) => {
       id:        h.hostid,
       name:      h.name || h.host,
       ip:        (h.interfaces || []).find(i => i.main === '1')?.ip || '',
-      available: +h.available,
+      available: +((h.interfaces || []).find(i => i.main === '1')?.available ?? h.available),
       status:    +h.status,
       groups:    (h.groups || []).map(g => g.name),
       metrics:   mByHost[h.hostid] || { cpu: null, ram: null, disk: null, uptime: null },
@@ -149,3 +150,5 @@ router.get('/events', async (_req, res) => {
 })
 
 export default router
+
+

@@ -36,7 +36,9 @@ class ZabbixClient {
   getHosts() {
     return this.call('host.get', {
       output: ['hostid', 'host', 'name', 'status', 'available'],
-      selectInterfaces: ['ip', 'main'],
+      selectInventory: ['os'],
+      monitored_hosts: true,
+      selectInterfaces: ['ip', 'main', 'available', 'type'],
       selectGroups: ['groupid', 'name'],
       sortfield: 'name',
     })
@@ -49,7 +51,7 @@ class ZabbixClient {
       selectTags: 'extend',
       selectAcknowledges: 'extend',
       recent: true,
-      sortfield: ['severity', 'eventid'],
+      sortfield: ['eventid'],
       sortorder: 'DESC',
     })
   }
@@ -84,3 +86,6 @@ class ZabbixClient {
 }
 
 export const zabbix = new ZabbixClient()
+
+
+
