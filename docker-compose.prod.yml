@@ -5,19 +5,20 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile.prod
-      args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
-        VITE_WS_URL: ${VITE_WS_URL:-/}
     container_name: netpulse-client-prod
+    ports:
+      - "3000:80"
     networks:
-      - netpulse
-    restart: unless-stopped
+      - netpulse-prod
+    restart: always
 
   server:
     build:
       context: ./server
       dockerfile: Dockerfile.prod
     container_name: netpulse-server-prod
+    ports:
+      - "5000:5000"
     env_file:
       - .env
     volumes:
@@ -28,24 +29,8 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - netpulse
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: netpulse-nginx-prod
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-    depends_on:
-      - client
-      - server
-    networks:
-      - netpulse
-    restart: unless-stopped
+      - netpulse-prod
+    restart: always
 
   mongo:
     image: mongo:7
@@ -54,7 +39,7 @@ services:
       - mongo-data:/data/db
       - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: netpulse
     healthcheck:
@@ -63,8 +48,8 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - netpulse
-    restart: unless-stopped
+      - netpulse-prod
+    restart: always
 
   redis:
     image: redis:7-alpine
@@ -78,13 +63,13 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - netpulse
-    restart: unless-stopped
+      - netpulse-prod
+    restart: always
 
 volumes:
-  mongo-data:
-  redis-data:
+  mongo-prod-data:
+  redis-prod-data:
 
 networks:
-  netpulse:
+  netpulse-prod:
     driver: bridge
