@@ -1,25 +1,38 @@
 import OpenAI from 'openai'
 
-let client
-function getClient() {
-  if (!client) client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  return client
+class OpenAIProvider {
+  constructor() {
+    this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    this.defaultModel = 'gpt-4o'
+  }
+
+  async chat(messages, systemPrompt, model = 'auto') {
+    const useModel = model === 'auto' ? this.defaultModel : model
+    const startTime = Date.now()
+
+    const allMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ]
+
+    const response = await this.client.chat.completions.create({
+      model: useModel,
+      messages: allMessages,
+      max_tokens: 2048,
+    })
+
+    return {
+      content: response.choices[0].message.content,
+      tokensUsed: response.usage.total_tokens,
+      model: useModel,
+      provider: 'openai',
+      responseTimeMs: Date.now() - startTime,
+    }
+  }
+
+  isConfigured() {
+    return !!process.env.OPENAI_API_KEY
+  }
 }
 
-export const openaiProvider = {
-  name: 'openai',
-  async chat(messages, options = {}) {
-    const res = await getClient().chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o',
-      max_tokens: options.maxTokens || 1024,
-      messages: [
-        { role: 'system', content: options.system || 'You are NetPulse AI, an assistant for network and security operations.' },
-        ...messages,
-      ],
-    })
-    return res.choices[0].message.content
-  },
-  async complete(prompt, options = {}) {
-    return this.chat([{ role: 'user', content: prompt }], options)
-  },
-}
+export const openaiProvider = new OpenAIProvider()

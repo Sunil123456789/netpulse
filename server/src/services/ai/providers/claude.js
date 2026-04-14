@@ -1,23 +1,34 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-let client
-function getClient() {
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  return client
-}
+class ClaudeProvider {
+  constructor() {
+    this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    this.defaultModel = 'claude-sonnet-4-20250514'
+  }
 
-export const claudeProvider = {
-  name: 'claude',
-  async chat(messages, options = {}) {
-    const res = await getClient().messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
-      max_tokens: options.maxTokens || 1024,
-      system: options.system || 'You are NetPulse AI, an assistant for network and security operations.',
+  async chat(messages, systemPrompt, model = 'auto') {
+    const useModel = model === 'auto' ? this.defaultModel : model
+    const startTime = Date.now()
+
+    const response = await this.client.messages.create({
+      model: useModel,
+      max_tokens: 2048,
+      system: systemPrompt,
       messages,
     })
-    return res.content[0].text
-  },
-  async complete(prompt, options = {}) {
-    return this.chat([{ role: 'user', content: prompt }], options)
-  },
+
+    return {
+      content: response.content[0].text,
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+      model: useModel,
+      provider: 'claude',
+      responseTimeMs: Date.now() - startTime,
+    }
+  }
+
+  isConfigured() {
+    return !!process.env.ANTHROPIC_API_KEY
+  }
 }
+
+export const claudeProvider = new ClaudeProvider()
