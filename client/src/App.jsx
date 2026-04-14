@@ -11,9 +11,16 @@ import AIPage from './pages/AI/AIPage'
 import EDRPage from './pages/EDR/EDRPage'
 import HomePage from './pages/Home/HomePage'
 import ZabbixPage from './pages/Zabbix/ZabbixPage'
+import { isFeatureEnabled } from './config/features'
 function PrivateRoute({ children }) {
   const token = useAuthStore(s => s.token)
   return token ? children : <Navigate to="/login" replace />
+}
+function RoleRoute({ children, roles }) {
+  const token = useAuthStore(s => s.token)
+  const user = useAuthStore(s => s.user)
+  if (!token) return <Navigate to="/login" replace />
+  return roles.includes(user?.role) ? children : <Navigate to="/home" replace />
 }
 export default function App() {
   return (
@@ -24,9 +31,9 @@ export default function App() {
         <Route path="home"    element={<HomePage />} />
         <Route path="soc"     element={<SOCPage />} />
         <Route path="noc"     element={<NOCPage />} />
-        <Route path="tickets" element={<TicketsPage />} />
-        <Route path="admin"   element={<AdminPage />} />
-        <Route path="reports" element={<ReportsPage />} />
+        <Route path="tickets" element={isFeatureEnabled('tickets') ? <TicketsPage /> : <Navigate to="/home" replace />} />
+        <Route path="admin"   element={<RoleRoute roles={['admin']}><AdminPage /></RoleRoute>} />
+        <Route path="reports" element={isFeatureEnabled('reports') ? <ReportsPage /> : <Navigate to="/home" replace />} />
         <Route path="ai"      element={<AIPage />} />
         <Route path="edr"     element={<EDRPage />} />
         <Route path="zabbix"  element={<ZabbixPage />} />

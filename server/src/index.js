@@ -25,7 +25,7 @@ import statsRoutes from './routes/stats.js'
 import edrRoutes from './routes/edr.js'
 import zabbixRoutes from './routes/zabbix.js'
 import { errorHandler } from './middleware/errorHandler.js'
-import { authenticate } from './middleware/auth.js'
+import { authenticate, authorize } from './middleware/auth.js'
 import './models/AITaskConfig.js'
 import './models/AIScore.js'
 import './models/AIAnomaly.js'
@@ -52,12 +52,12 @@ app.use(morgan('dev'))
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }))
 
 app.use('/api/auth',    authRoutes)
-app.use('/api/users',   authenticate, userRoutes)
-app.use('/api/devices', authenticate, deviceRoutes)
-app.use('/api/sites',   authenticate, siteRoutes)
+app.use('/api/users',   authenticate, authorize('admin'), userRoutes)
+app.use('/api/devices', authenticate, authorize('admin'), deviceRoutes)
+app.use('/api/sites',   authenticate, authorize('admin'), siteRoutes)
 app.use('/api/tickets', authenticate, ticketRoutes)
 app.use('/api/logs',    authenticate, logsRoutes)
-app.use('/api/alerts',  authenticate, alertRoutes)
+app.use('/api/alerts',  authenticate, authorize('admin'), alertRoutes)
 app.use('/api/ai',      authenticate, aiRoutes)
 app.use('/api/ml',      authenticate, mlRoutes)
 app.use('/api/stats',   authenticate, statsRoutes)
@@ -82,5 +82,4 @@ async function start() {
 }
 
 start().catch(console.error)
-
 

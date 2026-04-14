@@ -5,10 +5,45 @@ const router = Router()
 const SEV = ['Not classified', 'Info', 'Warning', 'Average', 'High', 'Disaster']
 const nowSecs = () => Math.floor(Date.now() / 1000)
 const configured = () => !!(process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN)
+const updatedAt = () => new Date().toISOString()
+
+function sendUnavailable(res, error, data = [], extra = {}) {
+  return res.status(503).json({
+    connected: false,
+    degraded: true,
+    dependency: 'zabbix',
+    error,
+    updatedAt: updatedAt(),
+    data,
+    ...extra,
+  })
+}
+
+function sendOk(res, data = [], extra = {}) {
+  return res.json({
+    connected: true,
+    degraded: false,
+    dependency: 'zabbix',
+    updatedAt: updatedAt(),
+    data,
+    ...extra,
+  })
+}
 
 // GET /api/zabbix/overview — connection check + summary stats
 router.get('/overview', async (_req, res) => {
-  if (!configured()) return res.json({ connected: false, error: 'Not configured' })
+  if (!configured()) {
+    return sendUnavailable(
+      res,
+      'Zabbix is not configured',
+      [],
+      {
+        hosts: { total: 0, up: 0, down: 0, unknown: 0 },
+        problems: { total: 0, disaster: 0, high: 0, average: 0, warning: 0, info: 0 },
+        groups: 0,
+      }
+    )
+  }
   try {
     const [hosts, problems, groups] = await Promise.all([
       zabbix.getHosts(),
@@ -30,15 +65,24 @@ router.get('/overview', async (_req, res) => {
       else if (s === 2) p.warning++; else p.info++
     }
 
-    res.json({ connected: true, hosts: h, problems: p, groups: groups.length })
+    sendOk(res, [], { hosts: h, problems: p, groups: groups.length })
   } catch (err) {
-    res.json({ connected: false, error: err.message })
+    sendUnavailable(
+      res,
+      err.message,
+      [],
+      {
+        hosts: { total: 0, up: 0, down: 0, unknown: 0 },
+        problems: { total: 0, disaster: 0, high: 0, average: 0, warning: 0, info: 0 },
+        groups: 0,
+      }
+    )
   }
 })
 
 // GET /api/zabbix/hosts — all hosts enriched with metrics + problem counts
 router.get('/hosts', async (_req, res) => {
-  if (!configured()) return res.json([])
+  if (!configured()) return sendUnavailable(res, 'Zabbix is not configured')
   try {
     const [hosts, problems, metrics] = await Promise.all([
       zabbix.getHosts(),
@@ -62,7 +106,7 @@ router.get('/hosts', async (_req, res) => {
       if (k === 'system.uptime')         mByHost[m.hostid].uptime = isNaN(v) ? null : v
     }
 
-    res.json(hosts.map(h => ({
+    const data = hosts.map(h => ({
       id:        h.hostid,
       name:      h.name || h.host,
       ip:        (h.interfaces || []).find(i => i.main === '1')?.ip || '',
@@ -71,17 +115,20 @@ router.get('/hosts', async (_req, res) => {
       groups:    (h.groups || []).map(g => g.name),
       metrics:   mByHost[h.hostid] || { cpu: null, ram: null, disk: null, uptime: null },
       problems:  probByHost[h.hostid] || 0,
-    })))
-  } catch (err) { res.json([]) }
+    }))
+    sendOk(res, data, { count: data.length })
+  } catch (err) {
+    sendUnavailable(res, err.message)
+  }
 })
 
 // GET /api/zabbix/problems — active problems
 router.get('/problems', async (_req, res) => {
-  if (!configured()) return res.json([])
+  if (!configured()) return sendUnavailable(res, 'Zabbix is not configured')
   try {
     const problems = await zabbix.getProblems()
     const ts = nowSecs()
-    res.json(problems.map(p => ({
+    const data = problems.map(p => ({
       id:            p.eventid,
       name:          p.name,
       severity:      +p.severity,
@@ -92,13 +139,16 @@ router.get('/problems', async (_req, res) => {
       duration:      ts - +p.clock,
       acknowledged:  p.acknowledged === '1',
       tags:          p.tags || [],
-    })))
-  } catch (err) { res.json([]) }
+    }))
+    sendOk(res, data, { count: data.length })
+  } catch (err) {
+    sendUnavailable(res, err.message)
+  }
 })
 
 // GET /api/zabbix/groups — host groups with hosts + problem counts
 router.get('/groups', async (_req, res) => {
-  if (!configured()) return res.json([])
+  if (!configured()) return sendUnavailable(res, 'Zabbix is not configured')
   try {
     const [groups, hosts, problems] = await Promise.all([
       zabbix.getGroups(),
@@ -118,7 +168,7 @@ router.get('/groups', async (_req, res) => {
       for (const h of (p.hosts || []))
         probByHost[h.hostid] = (probByHost[h.hostid] || 0) + 1
 
-    res.json(groups.map(g => {
+    const data = groups.map(g => {
       const gh = hostsByGroup[g.groupid] || []
       return {
         id:        g.groupid,
@@ -127,16 +177,19 @@ router.get('/groups', async (_req, res) => {
         hosts:     gh.slice(0, 8),
         problems:  gh.reduce((acc, h) => acc + (probByHost[h.id] || 0), 0),
       }
-    }))
-  } catch (err) { res.json([]) }
+    })
+    sendOk(res, data, { count: data.length })
+  } catch (err) {
+    sendUnavailable(res, err.message)
+  }
 })
 
 // GET /api/zabbix/events — recent events last 24h
 router.get('/events', async (_req, res) => {
-  if (!configured()) return res.json([])
+  if (!configured()) return sendUnavailable(res, 'Zabbix is not configured')
   try {
     const events = await zabbix.getEvents(24)
-    res.json(events.map(e => ({
+    const data = events.map(e => ({
       id:            e.eventid,
       name:          e.name,
       severity:      +e.severity,
@@ -145,8 +198,11 @@ router.get('/events', async (_req, res) => {
       timestamp:     new Date(+e.clock * 1000).toISOString(),
       clock:         +e.clock,
       acknowledged:  e.acknowledged === '1',
-    })))
-  } catch (err) { res.json([]) }
+    }))
+    sendOk(res, data, { count: data.length })
+  } catch (err) {
+    sendUnavailable(res, err.message)
+  }
 })
 
 export default router

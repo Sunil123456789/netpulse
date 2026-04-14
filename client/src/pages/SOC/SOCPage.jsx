@@ -6,6 +6,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import api from '../../api/client'
 import { io } from 'socket.io-client'
 import { getSocketUrl } from '../../config/runtime'
+import { useAuthStore } from '../../store/authStore'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler)
 
@@ -90,6 +91,7 @@ function getSevCategory(e) {
 }
 
 export default function SOCPage() {
+  const token = useAuthStore(s => s.token)
   const [tab, setTab]           = useState('overview')
   const [range, setRange] = useState({ type:'preset', value:'24h', label:'24h' })
   const [stats, setStats]       = useState(null)
@@ -105,14 +107,18 @@ export default function SOCPage() {
   const socketRef = useRef(null)
 
   useEffect(() => {
-    const sock = io(getSocketUrl(), { reconnectionDelay: 2000 })
+    if (!token) return undefined
+    const sock = io(getSocketUrl(), { auth: { token }, reconnectionDelay: 2000 })
     socketRef.current = sock
     sock.on('live:events', evs => setLiveEvents(p => [...evs,...p].slice(0,100)))
     sock.on('disconnect', () => setWsStatus('disconnected'))
-    sock.on('connect', () => setWsStatus('connected'))
+    sock.on('connect', () => {
+      setWsStatus('connected')
+      sock.emit('subscribe', { channel: 'soc' })
+    })
     sock.on('connect_error', () => setWsStatus('disconnected'))
     return () => sock.disconnect()
-  }, [])
+  }, [token])
 
   useEffect(() => {
     async function load() {
@@ -565,5 +571,4 @@ export default function SOCPage() {
     </div>
   )
 }
-
 

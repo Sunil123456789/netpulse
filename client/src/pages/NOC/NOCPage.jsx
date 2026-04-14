@@ -6,6 +6,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import api from '../../api/client'
 import { io } from 'socket.io-client'
 import { getSocketUrl } from '../../config/runtime'
+import { useAuthStore } from '../../store/authStore'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler)
 
@@ -68,6 +69,7 @@ function BarRows({ items, colorFn }) {
 }
 
 export default function NOCPage() {
+  const token = useAuthStore(s => s.token)
   const [tab, setTab]         = useState('overview')
   const [range, setRange] = useState({ type:'preset', value:'24h', label:'24h' })
   const [stats, setStats]     = useState(null)
@@ -80,17 +82,20 @@ export default function NOCPage() {
   const socketRef = useRef(null)
 
   useEffect(() => {
-    const sock = io(getSocketUrl(), { reconnectionDelay: 2000 })
+    if (!token) return undefined
+    const sock = io(getSocketUrl(), { auth: { token }, reconnectionDelay: 2000 })
     socketRef.current = sock
     sock.on('live:events', evs => {
-      const cisco = evs.filter(e => e._index?.includes('cisco') || e.cisco_mnemonic)
-      if (cisco.length) setLiveEvents(p => [...cisco,...p].slice(0,100))
+      if (evs.length) setLiveEvents(p => [...evs,...p].slice(0,100))
     })
     sock.on('disconnect', () => setWsStatus('disconnected'))
-    sock.on('connect', () => setWsStatus('connected'))
+    sock.on('connect', () => {
+      setWsStatus('connected')
+      sock.emit('subscribe', { channel: 'noc' })
+    })
     sock.on('connect_error', () => setWsStatus('disconnected'))
     return () => sock.disconnect()
-  }, [])
+  }, [token])
 
   useEffect(() => {
     async function load() {
@@ -479,4 +484,3 @@ export default function NOCPage() {
     </div>
   )
 }
-

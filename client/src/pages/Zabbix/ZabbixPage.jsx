@@ -117,6 +117,7 @@ export default function ZabbixPage() {
   const [groups, setGroups]     = useState([])
   const [events, setEvents]     = useState([])
   const [fetchError, setFetchError] = useState(null)
+  const [degradedSources, setDegradedSources] = useState([])
   const [loading, setLoading]   = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
 
@@ -131,24 +132,81 @@ export default function ZabbixPage() {
   // Events tab filter
   const [evFilter, setEvFilter] = useState('all')
 
+  function normalizeOverview(result) {
+    if (result.status === 'fulfilled') {
+      const payload = result.value.data || {}
+      return {
+        data: payload,
+        issue: payload.connected === false ? payload.error || 'Zabbix unavailable' : null,
+      }
+    }
+
+    const payload = result.reason?.response?.data || {}
+    return {
+      data: {
+        connected: false,
+        degraded: true,
+        error: payload.error || result.reason.message || 'Zabbix unavailable',
+        hosts: payload.hosts || { total: 0, up: 0, down: 0, unknown: 0 },
+        problems: payload.problems || { total: 0, disaster: 0, high: 0, average: 0, warning: 0, info: 0 },
+        groups: payload.groups || 0,
+      },
+      issue: payload.error || result.reason.message || 'Zabbix unavailable',
+    }
+  }
+
+  function normalizeCollection(result, label) {
+    if (result.status === 'fulfilled') {
+      const payload = result.value.data || {}
+      return {
+        items: payload.data || [],
+        issue: payload.connected === false ? payload.error || `${label} unavailable` : null,
+      }
+    }
+
+    const payload = result.reason?.response?.data || {}
+    return {
+      items: payload.data || [],
+      issue: payload.error || result.reason.message || `${label} unavailable`,
+    }
+  }
+
   useEffect(() => {
     async function load() {
       try {
-        const [ov, hs, pr, gr, ev] = await Promise.all([
+        const [ov, hs, pr, gr, ev] = await Promise.allSettled([
           zabbixAPI.getOverview(),
           zabbixAPI.getHosts(),
           zabbixAPI.getProblems(),
           zabbixAPI.getGroups(),
           zabbixAPI.getEvents(),
         ])
-        setOverview(ov.data)
-        setHosts(hs.data    || [])
-        setProblems(pr.data || [])
-        setGroups(gr.data   || [])
-        setEvents(ev.data   || [])
-        setFetchError(ov.data?.connected === false ? (ov.data.error || 'Zabbix unreachable') : null)
+
+        const overviewState = normalizeOverview(ov)
+        const hostsState = normalizeCollection(hs, 'Hosts')
+        const problemsState = normalizeCollection(pr, 'Problems')
+        const groupsState = normalizeCollection(gr, 'Groups')
+        const eventsState = normalizeCollection(ev, 'Events')
+
+        setOverview(overviewState.data)
+        setHosts(hostsState.items)
+        setProblems(problemsState.items)
+        setGroups(groupsState.items)
+        setEvents(eventsState.items)
+
+        const issues = [
+          overviewState.issue && `Overview: ${overviewState.issue}`,
+          hostsState.issue && `Hosts: ${hostsState.issue}`,
+          problemsState.issue && `Problems: ${problemsState.issue}`,
+          groupsState.issue && `Groups: ${groupsState.issue}`,
+          eventsState.issue && `Events: ${eventsState.issue}`,
+        ].filter(Boolean)
+
+        setDegradedSources(issues)
+        setFetchError(issues.length > 0 ? issues[0] : null)
         setLastRefresh(new Date().toLocaleTimeString())
       } catch (err) {
+        setDegradedSources([err.response?.data?.error || err.message])
         setFetchError(err.response?.data?.error || err.message)
       } finally {
         setLoading(false)
@@ -471,18 +529,22 @@ export default function ZabbixPage() {
       {fetchError && (
         <div style={{ background:`${C.red}22`, borderBottom:`1px solid ${C.red}44`, padding:'7px 20px', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
           <div style={{ width:6, height:6, borderRadius:'50%', background:C.red, flexShrink:0 }} />
-          <span style={{ fontSize:11, color:C.red, fontFamily:'var(--mono)', fontWeight:600 }}>Zabbix Unreachable</span>
-          <span style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>{fetchError}</span>
+          <span style={{ fontSize:11, color:C.red, fontFamily:'var(--mono)', fontWeight:600 }}>
+            {degradedSources.length > 1 ? 'Zabbix Degraded' : 'Zabbix Unreachable'}
+          </span>
+          <span style={{ fontSize:11, color:C.text3, fontFamily:'var(--mono)' }}>
+            {degradedSources.length > 1 ? degradedSources.join(' • ') : fetchError}
+          </span>
         </div>
       )}
 
       {/* Status bar + tab bar */}
       <div style={{ padding:'10px 20px 0', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <div style={{ width:7, height:7, borderRadius:'50%', background:fetchError ? C.red : C.green, boxShadow:`0 0 6px ${fetchError ? C.red : C.green}`, animation:'pulse 2s infinite' }} />
             <span style={{ fontSize:10, fontFamily:'var(--mono)', color:fetchError ? C.red : C.green }}>
-              {fetchError ? 'DISCONNECTED' : 'CONNECTED'}
+              {fetchError ? 'DEGRADED' : 'CONNECTED'}
             </span>
             {lastRefresh && <span style={{ fontSize:10, fontFamily:'var(--mono)', color:C.text3 }}>• Updated {lastRefresh}</span>}
           </div>

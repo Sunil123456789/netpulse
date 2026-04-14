@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import AlertRule from '../models/AlertRule.js'
+import { sendWriteError, validateAlertRuleWrite, validateObjectIdParam } from '../middleware/validators.js'
 
 const router = Router()
 
@@ -10,21 +11,21 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-router.post('/', async (req, res) => {
+router.post('/', validateAlertRuleWrite, async (req, res) => {
   try {
     const rule = await AlertRule.create(req.body)
     res.status(201).json(rule)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { sendWriteError(res, err) }
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', validateObjectIdParam(), validateAlertRuleWrite, async (req, res) => {
   try {
-    const rule = await AlertRule.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const rule = await AlertRule.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
     res.json(rule)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { sendWriteError(res, err) }
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validateObjectIdParam(), async (req, res) => {
   try {
     await AlertRule.findByIdAndDelete(req.params.id)
     res.json({ message: 'Rule deleted' })

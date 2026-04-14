@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import Site from '../models/Site.js'
+import { sendWriteError, validateObjectIdParam, validateSiteWrite } from '../middleware/validators.js'
 
 const router = Router()
 
@@ -10,21 +11,21 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-router.post('/', async (req, res) => {
+router.post('/', validateSiteWrite, async (req, res) => {
   try {
     const site = await Site.create(req.body)
     res.status(201).json(site)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { sendWriteError(res, err) }
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', validateObjectIdParam(), validateSiteWrite, async (req, res) => {
   try {
-    const site = await Site.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const site = await Site.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
     res.json(site)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { sendWriteError(res, err) }
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validateObjectIdParam(), async (req, res) => {
   try {
     await Site.findByIdAndDelete(req.params.id)
     res.json({ message: 'Site deleted' })
