@@ -2,6 +2,10 @@ import { Router } from 'express'
 import { ollamaProvider } from '../services/ai/providers/ollama.js'
 import { taskRouter } from '../services/ai/taskRouter.js'
 import { buildContext } from '../services/ai/context.js'
+import {
+  scoreResponse, saveUserRating,
+  getLeaderboard, getProviderStats, getRecentScores,
+} from '../services/ai/scorer.js'
 import AITaskConfig from '../models/AITaskConfig.js'
 
 const router = Router()
@@ -237,6 +241,56 @@ router.get('/context', async (req, res) => {
 
     const context = await buildContext(sources, { from, to })
     res.json(context)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/scores/leaderboard
+router.get('/scores/leaderboard', async (req, res) => {
+  try {
+    const leaderboard = await getLeaderboard()
+    res.json(leaderboard)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/scores/provider-stats
+router.get('/scores/provider-stats', async (req, res) => {
+  try {
+    const stats = await getProviderStats()
+    res.json(stats)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/scores/recent/:task
+router.get('/scores/recent/:task', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20
+    const scores = await getRecentScores(req.params.task, limit)
+    res.json(scores)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/scores/:id/rate
+// Save user rating 1-5 stars for a response
+router.post('/scores/:id/rate', async (req, res) => {
+  try {
+    const { rating } = req.body
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be 1-5' })
+    }
+    const updated = await saveUserRating(req.params.id, parseInt(rating))
+    res.json({
+      success: true,
+      newTotalScore: updated.totalScore,
+      userRating: updated.scores.userRating,
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
