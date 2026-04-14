@@ -12,6 +12,7 @@ import {
 } from '../services/ai/scorer.js'
 import AITaskConfig from '../models/AITaskConfig.js'
 import { scheduler } from '../services/ai/scheduler.js'
+import { getTaskDefault, getTaskDefaults } from '../config/aiTaskDefaults.js'
 
 const router = Router()
 
@@ -125,15 +126,7 @@ router.put('/config/:task', async (req, res) => {
 // Reset ALL task configs to defaults (must be before /:task routes)
 router.post('/config/reset-all', async (req, res) => {
   try {
-    const defaults = [
-      { task: 'chat',       provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-      { task: 'anomaly',    provider: 'ollama', model: 'llama3',  autoEnabled: false, schedule: 'every_hour' },
-      { task: 'triage',     provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-      { task: 'brief',      provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'daily_6am' },
-      { task: 'search',     provider: 'ollama', model: 'mistral', autoEnabled: false, schedule: 'manual' },
-      { task: 'comparison', provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-    ]
-    for (const d of defaults) {
+    for (const d of getTaskDefaults()) {
       await AITaskConfig.findOneAndUpdate(
         { task: d.task },
         { ...d, updatedAt: new Date() },
@@ -164,20 +157,13 @@ router.get('/config/:task', async (req, res) => {
 router.post('/config/:task/reset', async (req, res) => {
   try {
     const { task } = req.params
-    const defaults = {
-      chat:       { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-      anomaly:    { provider: 'ollama', model: 'llama3',  autoEnabled: false, schedule: 'every_hour' },
-      triage:     { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-      brief:      { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'daily_6am' },
-      search:     { provider: 'ollama', model: 'mistral', autoEnabled: false, schedule: 'manual' },
-      comparison: { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-    }
-    if (!defaults[task]) {
+    const defaults = getTaskDefault(task)
+    if (!defaults) {
       return res.status(400).json({ error: `Unknown task: ${task}` })
     }
     const config = await AITaskConfig.findOneAndUpdate(
       { task },
-      { ...defaults[task], updatedAt: new Date() },
+      { ...defaults, updatedAt: new Date() },
       { new: true }
     )
     res.json(config)

@@ -3,7 +3,7 @@ import OpenAI from 'openai'
 class OpenAIProvider {
   constructor() {
     this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    this.defaultModel = 'gpt-4o'
+    this.defaultModel = process.env.OPENAI_MODEL || 'gpt-4o'
   }
 
   async chat(messages, systemPrompt, model = 'auto') {

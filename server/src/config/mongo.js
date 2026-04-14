@@ -1,17 +1,9 @@
 import mongoose from 'mongoose'
 import AITaskConfig from '../models/AITaskConfig.js'
-
-const TASK_DEFAULTS = [
-  { task: 'chat',       provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-  { task: 'anomaly',    provider: 'ollama', model: 'llama3',  autoEnabled: false, schedule: 'every_hour' },
-  { task: 'triage',     provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-  { task: 'brief',      provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'daily_6am' },
-  { task: 'search',     provider: 'ollama', model: 'mistral', autoEnabled: false, schedule: 'manual' },
-  { task: 'comparison', provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
-]
+import { getTaskDefaults } from './aiTaskDefaults.js'
 
 async function seedTaskConfigs() {
-  for (const d of TASK_DEFAULTS) {
+  for (const d of getTaskDefaults()) {
     await AITaskConfig.findOneAndUpdate(
       { task: d.task },
       { $setOnInsert: d },
