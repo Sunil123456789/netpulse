@@ -3,6 +3,9 @@ import { ollamaProvider } from '../services/ai/providers/ollama.js'
 import { taskRouter } from '../services/ai/taskRouter.js'
 import { buildContext } from '../services/ai/context.js'
 import { processChat } from '../services/ai/chat.js'
+import { processNLSearch } from '../services/ai/nlSearch.js'
+import { triageAlert } from '../services/ai/triage.js'
+import { generateBrief, getLatestBrief, getBriefHistory } from '../services/ai/dailyBrief.js'
 import {
   scoreResponse, saveUserRating,
   getLeaderboard, getProviderStats, getRecentScores,
@@ -345,6 +348,139 @@ router.post('/scores/:id/rate', async (req, res) => {
       newTotalScore: updated.totalScore,
       userRating: updated.scores.userRating,
     })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/search
+router.post('/search', async (req, res) => {
+  try {
+    const {
+      question,
+      source,
+      dateRange,
+      provider: overrideProvider,
+      model: overrideModel
+    } = req.body
+
+    if (!question || question.trim().length === 0) {
+      return res.status(400).json({ error: 'question is required' })
+    }
+
+    if (question.length > 500) {
+      return res.status(400).json({ error: 'question too long (max 500 chars)' })
+    }
+
+    const result = await processNLSearch({
+      question: question.trim(),
+      source: source || 'auto',
+      dateRange: dateRange || null,
+      overrideProvider,
+      overrideModel
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('NL Search error:', err.message)
+    res.status(500).json({
+      error: err.message,
+      hint: 'Try rephrasing your question'
+    })
+  }
+})
+
+// GET /api/ai/search/history
+router.get('/search/history', async (_req, res) => {
+  try {
+    const history = await getRecentScores('search', 20)
+    res.json(history)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/triage
+router.post('/triage', async (req, res) => {
+  try {
+    const {
+      alert,
+      provider: overrideProvider,
+      model: overrideModel
+    } = req.body
+
+    if (!alert) {
+      return res.status(400).json({ error: 'alert object is required' })
+    }
+
+    const result = await triageAlert({
+      alert,
+      overrideProvider,
+      overrideModel
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('Triage error:', err.message)
+    res.status(500).json({
+      error: err.message,
+      hint: 'Check AI provider configuration'
+    })
+  }
+})
+
+// GET /api/ai/triage/history
+router.get('/triage/history', async (_req, res) => {
+  try {
+    const history = await getRecentScores('triage', 20)
+    res.json(history)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/brief/generate
+router.post('/brief/generate', async (req, res) => {
+  try {
+    const {
+      dateRange,
+      provider: overrideProvider,
+      model: overrideModel
+    } = req.body
+
+    const result = await generateBrief({
+      dateRange: dateRange || null,
+      overrideProvider,
+      overrideModel,
+      triggeredBy: 'manual'
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('Brief generation error:', err.message)
+    res.status(500).json({
+      error: err.message,
+      hint: 'Brief generation failed - check AI provider'
+    })
+  }
+})
+
+// GET /api/ai/brief/latest
+router.get('/brief/latest', async (_req, res) => {
+  try {
+    const brief = await getLatestBrief()
+    if (!brief) return res.json({ message: 'No briefs generated yet' })
+    res.json(brief)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/brief/history
+router.get('/brief/history', async (_req, res) => {
+  try {
+    const history = await getBriefHistory(30)
+    res.json(history)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
