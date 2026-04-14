@@ -112,6 +112,118 @@ router.put('/config/:task', async (req, res) => {
   }
 })
 
+// POST /api/ai/config/reset-all
+// Reset ALL task configs to defaults (must be before /:task routes)
+router.post('/config/reset-all', async (req, res) => {
+  try {
+    const defaults = [
+      { task: 'chat',       provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+      { task: 'anomaly',    provider: 'ollama', model: 'llama3',  autoEnabled: false, schedule: 'every_hour' },
+      { task: 'triage',     provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+      { task: 'brief',      provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'daily_6am' },
+      { task: 'search',     provider: 'ollama', model: 'mistral', autoEnabled: false, schedule: 'manual' },
+      { task: 'comparison', provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+    ]
+    for (const d of defaults) {
+      await AITaskConfig.findOneAndUpdate(
+        { task: d.task },
+        { ...d, updatedAt: new Date() },
+        { upsert: true }
+      )
+    }
+    const all = await AITaskConfig.find().sort({ task: 1 })
+    res.json({ message: 'All configs reset to defaults', configs: all })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/config/:task
+// Get single task config
+router.get('/config/:task', async (req, res) => {
+  try {
+    const config = await AITaskConfig.findOne({ task: req.params.task })
+    if (!config) return res.status(404).json({ error: 'Task not found' })
+    res.json(config)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/config/:task/reset
+// Reset a single task config to defaults
+router.post('/config/:task/reset', async (req, res) => {
+  try {
+    const { task } = req.params
+    const defaults = {
+      chat:       { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+      anomaly:    { provider: 'ollama', model: 'llama3',  autoEnabled: false, schedule: 'every_hour' },
+      triage:     { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+      brief:      { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'daily_6am' },
+      search:     { provider: 'ollama', model: 'mistral', autoEnabled: false, schedule: 'manual' },
+      comparison: { provider: 'claude', model: 'auto',    autoEnabled: false, schedule: 'manual' },
+    }
+    if (!defaults[task]) {
+      return res.status(400).json({ error: `Unknown task: ${task}` })
+    }
+    const config = await AITaskConfig.findOneAndUpdate(
+      { task },
+      { ...defaults[task], updatedAt: new Date() },
+      { new: true }
+    )
+    res.json(config)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/config/:task/toggle-auto
+// Toggle autoEnabled for a task
+router.post('/config/:task/toggle-auto', async (req, res) => {
+  try {
+    const config = await AITaskConfig.findOne({ task: req.params.task })
+    if (!config) return res.status(404).json({ error: 'Task not found' })
+    config.autoEnabled = !config.autoEnabled
+    config.updatedAt = new Date()
+    await config.save()
+    res.json({
+      task: config.task,
+      autoEnabled: config.autoEnabled,
+      message: `Auto ${config.autoEnabled ? 'enabled' : 'disabled'} for ${config.task}`,
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/provider/status
+// Quick check — which providers are ready to use
+router.get('/provider/status', async (req, res) => {
+  try {
+    const ollamaRunning = await ollamaProvider.isRunning()
+    const ollamaModels = ollamaRunning ? await ollamaProvider.listModels() : []
+
+    res.json({
+      claude: {
+        ready: !!process.env.ANTHROPIC_API_KEY,
+        reason: !process.env.ANTHROPIC_API_KEY ? 'ANTHROPIC_API_KEY not set' : null,
+      },
+      openai: {
+        ready: !!process.env.OPENAI_API_KEY,
+        reason: !process.env.OPENAI_API_KEY ? 'OPENAI_API_KEY not set' : null,
+      },
+      ollama: {
+        ready: ollamaRunning,
+        reason: !ollamaRunning ? 'Ollama not running or OLLAMA_HOST not reachable' : null,
+        models: ollamaModels.map(m => m.name),
+        modelCount: ollamaModels.length,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/ai/context
 // Returns current network context from all sources
 router.get('/context', async (req, res) => {
