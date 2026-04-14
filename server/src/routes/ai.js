@@ -11,6 +11,7 @@ import {
   getLeaderboard, getProviderStats, getRecentScores,
 } from '../services/ai/scorer.js'
 import AITaskConfig from '../models/AITaskConfig.js'
+import { scheduler } from '../services/ai/scheduler.js'
 
 const router = Router()
 
@@ -481,6 +482,81 @@ router.get('/brief/history', async (_req, res) => {
   try {
     const history = await getBriefHistory(30)
     res.json(history)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/scheduler/status
+router.get('/scheduler/status', async (_req, res) => {
+  try {
+    const status = await scheduler.getStatus()
+    res.json(status)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/scheduler/start/:task
+router.post('/scheduler/start/:task', async (req, res) => {
+  try {
+    const { task } = req.params
+
+    // Enable the task first
+    await AITaskConfig.findOneAndUpdate(
+      { task },
+      { autoEnabled: true, updatedAt: new Date() }
+    )
+
+    await scheduler.startTask(task)
+    res.json({
+      success: true,
+      message: `Scheduler started for ${task}`,
+      task
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/scheduler/stop/:task
+router.post('/scheduler/stop/:task', async (req, res) => {
+  try {
+    const { task } = req.params
+
+    // Disable in MongoDB
+    await AITaskConfig.findOneAndUpdate(
+      { task },
+      { autoEnabled: false, nextRun: null, updatedAt: new Date() }
+    )
+
+    scheduler.stopTask(task)
+    res.json({
+      success: true,
+      message: `Scheduler stopped for ${task}`,
+      task
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/scheduler/run/:task
+// Run a task immediately (manual trigger)
+router.post('/scheduler/run/:task', async (req, res) => {
+  try {
+    const { task } = req.params
+
+    // Run immediately in background
+    scheduler.runTask(task).catch(err =>
+      console.error(`Manual run error for ${task}:`, err.message)
+    )
+
+    res.json({
+      success: true,
+      message: `${task} started manually`,
+      task
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
