@@ -1,11 +1,18 @@
 # Production Deployment
 
-This repo now includes a production-oriented Docker stack for the AI-enabled NetPulse build:
+This repo now includes a production-oriented Docker stack for the AI-enabled NetPulse build.
+
+This deployment assumes:
+
+- host nginx handles TLS and reverse proxying
+- the `client` container is exposed on `localhost:3000`
+- the `server` container is exposed on `localhost:5000`
+
+Key files:
 
 - `docker-compose.prod.yml`
 - `client/Dockerfile.prod`
 - `server/Dockerfile.prod`
-- `nginx/nginx.prod.conf`
 
 ## Before Deploying
 
@@ -30,16 +37,17 @@ Review these values first:
 - `ZABBIX_URL`
 - `ZABBIX_TOKEN`
 
-Recommended production frontend values:
-
-- `VITE_API_URL=/api`
-- `VITE_WS_URL=/`
-
 ## First Rollout
 
 1. Back up MongoDB before deploying AI schema changes.
 2. Put the production `.env` on the server.
-3. Ensure TLS certs exist under `certs/` for nginx.
+3. Ensure the host nginx config proxies:
+
+- `/` to `http://localhost:3000`
+- `/api/` to `http://localhost:5000`
+- `/socket.io/` to `http://localhost:5000`
+- `/health` to `http://localhost:5000/health`
+
 4. Build and start the stack:
 
 ```powershell
@@ -50,7 +58,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ```powershell
 curl https://your-domain/health
-curl https://your-domain/api/ai/providers
+curl -I https://your-domain/api/ai/providers
 ```
 
 6. Log in and test:
