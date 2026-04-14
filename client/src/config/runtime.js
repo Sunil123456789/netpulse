@@ -6,7 +6,7 @@ function isLocalDevBrowser() {
 
 export function getApiBaseUrl() {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
-  return isLocalDevBrowser() ? 'http://localhost:5000' : '/api'
+  return isLocalDevBrowser() ? 'http://localhost:5000' : ''
 }
 
 export function getSocketUrl() {
