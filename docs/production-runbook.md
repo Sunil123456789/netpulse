@@ -25,6 +25,13 @@ cd /opt/netpulse
 bash scripts/prod-smoke.sh https://netpulse.smile4u.in
 ```
 
+Create a backup:
+
+```bash
+cd /opt/netpulse
+bash scripts/prod-backup.sh
+```
+
 ## Deploy
 
 ```bash
@@ -71,6 +78,29 @@ git checkout <known-good-commit>
 docker compose -f docker-compose.prod.yml up -d --build
 bash scripts/prod-smoke.sh https://netpulse.smile4u.in
 ```
+
+## Backup
+
+Create a production backup bundle:
+
+```bash
+cd /opt/netpulse
+chmod +x scripts/prod-backup.sh
+bash scripts/prod-backup.sh
+```
+
+Default output:
+
+- backup folder under `/opt/netpulse-backups/<timestamp>`
+- archive at `/opt/netpulse-backups/netpulse-backup-<timestamp>.tar.gz`
+
+Contents:
+
+- `.env`
+- nginx site config
+- current git commit and tags
+- MongoDB dump
+- docker compose status snapshot
 
 ## Common Issues
 
