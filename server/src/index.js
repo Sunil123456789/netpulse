@@ -19,6 +19,7 @@ import ticketRoutes from './routes/tickets.js'
 import logsRoutes from './routes/logs.js'
 import alertRoutes from './routes/alerts.js'
 import aiRoutes from './routes/ai.js'
+import mlRoutes from './routes/ml.js'
 import statsRoutes from './routes/stats.js'
 import edrRoutes from './routes/edr.js'
 import zabbixRoutes from './routes/zabbix.js'
@@ -57,6 +58,7 @@ app.use('/api/tickets', authenticate, ticketRoutes)
 app.use('/api/logs',    authenticate, logsRoutes)
 app.use('/api/alerts',  authenticate, alertRoutes)
 app.use('/api/ai',      authenticate, aiRoutes)
+app.use('/api/ml',      authenticate, mlRoutes)
 app.use('/api/stats',   authenticate, statsRoutes)
 app.use('/api/edr',     authenticate, edrRoutes)
 app.use('/api/zabbix', authenticate, zabbixRoutes)
