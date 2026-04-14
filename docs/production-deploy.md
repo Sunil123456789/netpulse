@@ -13,6 +13,8 @@ Key files:
 - `docker-compose.prod.yml`
 - `client/Dockerfile.prod`
 - `server/Dockerfile.prod`
+- `docs/production-runbook.md`
+- `scripts/prod-smoke.sh`
 
 ## Before Deploying
 
