@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { ollamaProvider } from '../services/ai/providers/ollama.js'
 import { taskRouter } from '../services/ai/taskRouter.js'
+import { buildContext } from '../services/ai/context.js'
 import AITaskConfig from '../models/AITaskConfig.js'
 
 const router = Router()
@@ -106,6 +107,24 @@ router.put('/config/:task', async (req, res) => {
       { new: true, upsert: true }
     )
     res.json(config)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/context
+// Returns current network context from all sources
+router.get('/context', async (req, res) => {
+  try {
+    const sources = req.query.sources
+      ? req.query.sources.split(',')
+      : ['es', 'zabbix', 'mongo']
+
+    const from = req.query.from || 'now-1h'
+    const to   = req.query.to   || 'now'
+
+    const context = await buildContext(sources, { from, to })
+    res.json(context)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
