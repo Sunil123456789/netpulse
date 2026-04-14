@@ -1,0 +1,90 @@
+name: netpulse-prod
+
+services:
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_WS_URL: ${VITE_WS_URL:-/}
+    container_name: netpulse-client-prod
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.prod
+    container_name: netpulse-server-prod
+    env_file:
+      - .env
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: netpulse-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - client
+      - server
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    container_name: netpulse-mongo-prod
+    volumes:
+      - mongo-data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: netpulse
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: netpulse-redis-prod
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - netpulse
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  netpulse:
+    driver: bridge

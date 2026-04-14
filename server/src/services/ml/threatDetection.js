@@ -7,6 +7,7 @@ async function detectPortScans({
   portThreshold = 15,
   timeWindowMinutes = 10
 }) {
+  void timeWindowMinutes
   const es = getESClient()
   const to = dateRange?.to || 'now'
   const from = dateRange?.from || 'now-1h'

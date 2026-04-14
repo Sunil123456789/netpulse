@@ -5,6 +5,7 @@ import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js'
 import api from '../../api/client'
 import { io } from 'socket.io-client'
+import { getSocketUrl } from '../../config/runtime'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler)
 
@@ -104,7 +105,7 @@ export default function SOCPage() {
   const socketRef = useRef(null)
 
   useEffect(() => {
-    const sock = io(import.meta.env.VITE_WS_URL || 'http://localhost:5000', { reconnectionDelay: 2000 })
+    const sock = io(getSocketUrl(), { reconnectionDelay: 2000 })
     socketRef.current = sock
     sock.on('live:events', evs => setLiveEvents(p => [...evs,...p].slice(0,100)))
     sock.on('disconnect', () => setWsStatus('disconnected'))
@@ -564,6 +565,5 @@ export default function SOCPage() {
     </div>
   )
 }
-
 
 

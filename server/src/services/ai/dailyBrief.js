@@ -119,6 +119,9 @@ and infrastructure status. Include specific numbers and actionable recommendatio
 
   // Save to MongoDB
   const savedBrief = await AIBrief.create({
+    title: briefData.title,
+    executiveSummary: briefData.executiveSummary,
+    riskLevel: briefData.riskLevel,
     rangeFrom: new Date(from.startsWith('now') ? Date.now() - 86400000 : from),
     rangeTo: new Date(to === 'now' ? Date.now() : to),
     provider: aiResult.provider,
@@ -129,6 +132,7 @@ and infrastructure status. Include specific numbers and actionable recommendatio
     fullReport: briefData.fullReport || JSON.stringify(briefData),
     tokensUsed: aiResult.tokensUsed,
     generationTimeMs: Date.now() - startTime,
+    totalScore: scoring.totalScore,
     scoreId: scoring.scoreId
   })
 
@@ -228,6 +232,10 @@ async function getLatestBrief() {
   return AIBrief.findOne().sort({ generatedAt: -1 }).lean()
 }
 
+async function getBriefById(id) {
+  return AIBrief.findById(id).lean()
+}
+
 async function getBriefHistory(limit = 30) {
   return AIBrief.find()
     .sort({ generatedAt: -1 })
@@ -236,4 +244,4 @@ async function getBriefHistory(limit = 30) {
     .lean()
 }
 
-export { generateBrief, getLatestBrief, getBriefHistory }
+export { generateBrief, getLatestBrief, getBriefById, getBriefHistory }
