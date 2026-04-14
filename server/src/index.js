@@ -24,6 +24,13 @@ import edrRoutes from './routes/edr.js'
 import zabbixRoutes from './routes/zabbix.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authenticate } from './middleware/auth.js'
+import './models/AITaskConfig.js'
+import './models/AIScore.js'
+import './models/AIAnomaly.js'
+import './models/AIBrief.js'
+import './models/AIBaseline.js'
+import './models/AIMLImprovement.js'
+import './models/AIMLFeedback.js'
 
 for (const v of ['JWT_SECRET', 'MONGO_URI', 'ES_HOST']) {
   if (!process.env[v]) throw new Error(`Missing required env var: ${v}`)
