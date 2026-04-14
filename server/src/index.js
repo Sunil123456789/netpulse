@@ -11,6 +11,7 @@ import { connectMongo } from './config/mongo.js'
 import { connectRedis } from './config/redis.js'
 import { initWebSocket } from './services/websocket.js'
 import { startAlertEngine } from './services/alertEngine.js'
+import { scheduler } from './services/ai/scheduler.js'
 import authRoutes from './routes/auth.js'
 import userRoutes from './routes/users.js'
 import deviceRoutes from './routes/devices.js'
@@ -67,6 +68,9 @@ app.use(errorHandler)
 
 async function start() {
   await connectMongo()
+  scheduler.initialize().catch(err =>
+    console.error('Scheduler init failed:', err.message)
+  )
   await connectRedis()
   initWebSocket(io)
   startAlertEngine(io)
