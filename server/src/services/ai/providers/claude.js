@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 class ClaudeProvider {
   constructor() {
     this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    this.defaultModel = 'claude-sonnet-4-20250514'
+    this.defaultModel = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514'
   }
 
   async chat(messages, systemPrompt, model = 'auto') {

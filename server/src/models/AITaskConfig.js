@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { getPreferredProvider } from '../config/aiTaskDefaults.js'
 
 const aiTaskConfigSchema = new mongoose.Schema({
   task: {
@@ -9,7 +10,7 @@ const aiTaskConfigSchema = new mongoose.Schema({
   },
   provider: {
     type: String,
-    default: 'claude',
+    default: getPreferredProvider,
     enum: ['claude', 'openai', 'ollama'],
   },
   model: { type: String, default: 'auto' },

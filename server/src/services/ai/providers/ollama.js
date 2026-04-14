@@ -1,7 +1,7 @@
 class OllamaProvider {
   constructor() {
     this.baseUrl = process.env.OLLAMA_HOST || 'http://localhost:11434'
-    this.defaultModel = 'llama3'
+    this.defaultModel = process.env.OLLAMA_MODEL || 'llama3'
   }
 
   async chat(messages, systemPrompt, model = 'auto') {
