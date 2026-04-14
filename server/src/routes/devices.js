@@ -1,6 +1,5 @@
 import { Router } from 'express'
 import Device from '../models/Device.js'
-import Site from '../models/Site.js'
 
 const router = Router()
 

@@ -3,6 +3,34 @@ import AIBaseline from '../../models/AIBaseline.js'
 import AIAnomaly from '../../models/AIAnomaly.js'
 import { METRICS } from './baseline.js'
 
+function resolveDateInput(input, fallbackDate = new Date()) {
+  if (!input) return fallbackDate
+  if (input instanceof Date) return input
+
+  const value = String(input).trim()
+  if (value === 'now') return new Date()
+
+  const match = value.match(/^now-(\d+)([smhdw])$/i)
+  if (match) {
+    const amount = Number(match[1])
+    const unit = match[2].toLowerCase()
+    const multipliers = {
+      s: 1000,
+      m: 60 * 1000,
+      h: 60 * 60 * 1000,
+      d: 24 * 60 * 60 * 1000,
+      w: 7 * 24 * 60 * 60 * 1000,
+    }
+    return new Date(Date.now() - (amount * multipliers[unit]))
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date value: ${value}`)
+  }
+  return parsed
+}
+
 // Get current value for a metric in a time window
 async function getCurrentMetricValue(metric, from, to) {
   const es = getESClient()
@@ -21,18 +49,6 @@ async function getCurrentMetricValue(metric, from, to) {
     console.error(`Error getting current value for ${metric.name}:`, err.message)
     return null
   }
-}
-
-// Get baseline for current time slot
-async function getBaselineForNow(metricName, referenceTime = new Date()) {
-  const hour = referenceTime.getUTCHours()
-  const dayOfWeek = referenceTime.getUTCDay()
-
-  return AIBaseline.findOne({
-    metric: metricName,
-    hour,
-    dayOfWeek
-  }).lean()
 }
 
 // Get baseline for specific time
@@ -57,7 +73,7 @@ function getSeverity(deviationSigma) {
 }
 
 // Generate human readable description
-function generateDescription(metricName, current, baseline, deviation) {
+function generateDescription(metricName, current, baseline) {
   const pctAbove = baseline.mean > 0
     ? Math.round(((current - baseline.mean) / baseline.mean) * 100)
     : 0
@@ -123,9 +139,9 @@ async function detectAnomalies({
   const startTime = Date.now()
 
   // Determine time range
-  const to = dateRange?.to ? new Date(dateRange.to) : new Date()
+  const to = resolveDateInput(dateRange?.to, new Date())
   const from = dateRange?.from
-    ? new Date(dateRange.from)
+    ? resolveDateInput(dateRange.from, new Date(to.getTime() - 3600000))
     : new Date(to.getTime() - 3600000) // default last 1 hour
 
   const anomalies = []
@@ -171,7 +187,7 @@ async function detectAnomalies({
           baselineStddev: baseline.stddev,
           deviation: Math.round(deviation * 100) / 100,
           severity,
-          description: generateDescription(metric.name, current, baseline, deviation),
+          description: generateDescription(metric.name, current, baseline),
           recommendation: generateRecommendation(metric.name, severity, deviation),
           timeSlot: {
             hour: baseline.hour,

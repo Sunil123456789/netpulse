@@ -1,5 +1,4 @@
 import AIMLImprovement from '../../models/AIMLImprovement.js'
-import AIMLFeedback from '../../models/AIMLFeedback.js'
 import AIAnomaly from '../../models/AIAnomaly.js'
 import AIBaseline from '../../models/AIBaseline.js'
 import { taskRouter } from '../ai/taskRouter.js'
@@ -28,6 +27,7 @@ Respond with ONLY valid JSON in this format:
 
 // Get ML performance stats for a model
 async function getMLPerformanceStats(mlModel) {
+  void mlModel
   try {
     // Get all anomaly runs
     const runs = await AIAnomaly.find()

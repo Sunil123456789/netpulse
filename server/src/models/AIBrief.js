@@ -7,6 +7,13 @@ const sectionSchema = {
 }
 
 const aiBriefSchema = new mongoose.Schema({
+  title:            { type: String, default: 'NetPulse Intelligence Brief' },
+  executiveSummary: { type: String, default: '' },
+  riskLevel: {
+    type: String,
+    default: 'medium',
+    enum: ['low', 'medium', 'high', 'critical'],
+  },
   generatedAt:      { type: Date, default: Date.now },
   rangeFrom:        { type: Date, required: true },
   rangeTo:          { type: Date, required: true },
@@ -26,6 +33,7 @@ const aiBriefSchema = new mongoose.Schema({
   fullReport:         { type: String, required: true },
   tokensUsed:         { type: Number, default: 0 },
   generationTimeMs:   { type: Number, default: 0 },
+  totalScore:         { type: Number, default: 0 },
   scoreId:            { type: String, default: null },
   createdAt:          { type: Date, default: Date.now },
 })

@@ -1,13 +1,13 @@
 import { Router } from 'express'
 import { ollamaProvider } from '../services/ai/providers/ollama.js'
-import { taskRouter } from '../services/ai/taskRouter.js'
 import { buildContext } from '../services/ai/context.js'
 import { processChat } from '../services/ai/chat.js'
 import { processNLSearch } from '../services/ai/nlSearch.js'
 import { triageAlert } from '../services/ai/triage.js'
-import { generateBrief, getLatestBrief, getBriefHistory } from '../services/ai/dailyBrief.js'
+import { generateBrief, getLatestBrief, getBriefById, getBriefHistory } from '../services/ai/dailyBrief.js'
+import { compareModels } from '../services/ai/modelLab.js'
 import {
-  scoreResponse, saveUserRating,
+  saveUserRating,
   getLeaderboard, getProviderStats, getRecentScores,
 } from '../services/ai/scorer.js'
 import AITaskConfig from '../models/AITaskConfig.js'
@@ -304,6 +304,32 @@ router.get('/chat/history', async (req, res) => {
   }
 })
 
+// POST /api/ai/compare
+router.post('/compare', async (req, res) => {
+  try {
+    const { question, context, dateRange, modelOverrides } = req.body
+
+    if (!question || !String(question).trim()) {
+      return res.status(400).json({ error: 'question is required' })
+    }
+
+    const result = await compareModels({
+      question: String(question).trim(),
+      context: context || 'all',
+      dateRange: dateRange || null,
+      modelOverrides: modelOverrides || {},
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('Model compare error:', err.message)
+    res.status(500).json({
+      error: err.message,
+      hint: 'Check provider availability and retry the comparison',
+    })
+  }
+})
+
 // GET /api/ai/scores/leaderboard
 router.get('/scores/leaderboard', async (req, res) => {
   try {
@@ -482,6 +508,17 @@ router.get('/brief/history', async (_req, res) => {
   try {
     const history = await getBriefHistory(30)
     res.json(history)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/brief/:id
+router.get('/brief/:id', async (req, res) => {
+  try {
+    const brief = await getBriefById(req.params.id)
+    if (!brief) return res.status(404).json({ error: 'Brief not found' })
+    res.json(brief)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

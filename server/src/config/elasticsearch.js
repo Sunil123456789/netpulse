@@ -1,5 +1,4 @@
 import { Client } from '@elastic/elasticsearch'
-import { readFileSync } from 'fs'
 
 let client
 

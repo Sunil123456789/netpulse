@@ -19,7 +19,8 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { password, ...rest } = req.body
+    const rest = { ...req.body }
+    delete rest.password
     const user = await User.findByIdAndUpdate(req.params.id, rest, { new: true })
     res.json(user)
   } catch (err) { res.status(500).json({ error: err.message }) }

@@ -232,11 +232,14 @@ function findBestTemplate(question) {
 
 async function processNLSearch({
   question,
-  source: _source = 'auto',
+  source = 'auto',
   dateRange = null,
-  overrideProvider: _overrideProvider = null,
-  overrideModel: _overrideModel = null
+  overrideProvider = null,
+  overrideModel = null
 }) {
+  void source
+  void overrideProvider
+  void overrideModel
   const startTime = Date.now()
   const from = dateRange?.from || 'now-24h'
   const to = dateRange?.to || 'now'
@@ -284,10 +287,13 @@ async function processNLSearch({
     question,
     matchedTemplate: key,
     templateDescription: template.description,
+    provider: 'template',
+    model: 'keyword-match',
     source: template.source,
     results: Array.isArray(results) ? results : [results],
     totalHits,
     executionTimeMs,
+    totalScore: scoring.totalScore,
     scoreId: scoring.scoreId
   }
 }
