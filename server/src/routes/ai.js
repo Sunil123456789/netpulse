@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { ollamaProvider } from '../services/ai/providers/ollama.js'
 import { taskRouter } from '../services/ai/taskRouter.js'
 import { buildContext } from '../services/ai/context.js'
+import { processChat } from '../services/ai/chat.js'
 import {
   scoreResponse, saveUserRating,
   getLeaderboard, getProviderStats, getRecentScores,
@@ -241,6 +242,59 @@ router.get('/context', async (req, res) => {
 
     const context = await buildContext(sources, { from, to })
     res.json(context)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ai/chat
+router.post('/chat', async (req, res) => {
+  try {
+    const {
+      messages,
+      context,
+      dateRange,
+      provider: overrideProvider,
+      model: overrideModel,
+    } = req.body
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array is required' })
+    }
+
+    for (const msg of messages) {
+      if (!msg.role || !msg.content) {
+        return res.status(400).json({ error: 'Each message must have role and content' })
+      }
+      if (!['user', 'assistant'].includes(msg.role)) {
+        return res.status(400).json({ error: 'Message role must be user or assistant' })
+      }
+    }
+
+    const result = await processChat({
+      messages,
+      context:          context || 'all',
+      dateRange:        dateRange || null,
+      overrideProvider,
+      overrideModel,
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('Chat error:', err.message)
+    res.status(500).json({
+      error: err.message,
+      hint: 'Check AI provider configuration and API keys',
+    })
+  }
+})
+
+// GET /api/ai/chat/history
+// Returns recent chat scores/history
+router.get('/chat/history', async (req, res) => {
+  try {
+    const history = await getRecentScores('chat', 20)
+    res.json(history)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
