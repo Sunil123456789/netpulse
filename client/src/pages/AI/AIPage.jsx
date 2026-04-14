@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import RangePicker from '../../components/ui/RangePicker.jsx'
-import { aiAPI, mlAPI } from '../../api/ai.js'
+import {
+  aiAPI,
+  mlAPI,
+  AI_TIMEOUT_OPTIONS,
+  DEFAULT_AI_TIMEOUT_MS,
+  getAIRequestTimeoutMs,
+  setAIRequestTimeoutMs,
+} from '../../api/ai.js'
 import { ticketsAPI } from '../../api/tickets.js'
 
 /* ─── colour palette ──────────────────────────────────────────────── */
@@ -101,6 +108,7 @@ function SettingsTab({ configs, setConfigs, providerStatus, ollamaStatus, schedu
   const [saving, setSaving] = useState({})
   const [pullModel, setPullModel] = useState('')
   const [pulling, setPulling] = useState(false)
+  const [aiTimeoutMs, setAiTimeoutMs] = useState(() => getAIRequestTimeoutMs())
 
   /* helpers */
   const setSav = (key, val) => setSaving(s => ({ ...s, [key]: val }))
@@ -188,9 +196,42 @@ function SettingsTab({ configs, setConfigs, providerStatus, ollamaStatus, schedu
 
   const taskNames = { chat: 'Chat', anomaly: 'Anomaly', triage: 'Triage', brief: 'Brief', search: 'Search', comparison: 'Comparison' }
 
+  function saveTimeout(nextTimeoutMs) {
+    setAiTimeoutMs(nextTimeoutMs)
+    setAIRequestTimeoutMs(nextTimeoutMs)
+    addToast(`AI request timeout set to ${Math.round(nextTimeoutMs / 1000)} seconds`, 'success')
+  }
+
   /* ════════════════════════════════════════════════════════════════ */
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      <Card title="AI EXPERIENCE" badge="CLIENT-SIDE REQUEST CONTROL" badgeClass="amber">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 280 }}>
+            <span style={{ fontSize: 11, color: C.text, fontFamily: 'var(--mono)', fontWeight: 600 }}>
+              AI request timeout
+            </span>
+            <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', lineHeight: 1.6 }}>
+              Controls how long the browser will wait for long AI tasks like Chat, Brief, Triage, Search, Model Lab, and ML analysis before showing a timeout error.
+            </span>
+          </div>
+
+          <select
+            value={aiTimeoutMs}
+            onChange={e => saveTimeout(Number(e.target.value))}
+            style={selSx}
+          >
+            {AI_TIMEOUT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          <div style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
+            Default: {Math.round(DEFAULT_AI_TIMEOUT_MS / 1000)}s
+          </div>
+        </div>
+      </Card>
 
       {/* ── SECTION 1: Task Configuration ──────────────────────── */}
       <Card title="TASK CONFIGURATION" badge="PER-TASK AI ROUTING" badgeClass="purple" noPad>
