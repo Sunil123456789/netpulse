@@ -1,29 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import NetPulseLogo from '../ui/NetPulseLogo.jsx'
-import { isFeatureEnabled } from '../../config/features'
-const nav = [
-  { to:'/home',    label:'Home',    icon:'🏠' },
-  { to:'/soc',     label:'SOC',     icon:'⚡' },
-  { to:'/noc',     label:'NOC',     icon:'🌐' },
-  { to:'/edr',     label:'EDR',     icon:'🛡️' },
-  { to:'/zabbix',  label:'Infrastructure', icon:'🖥️' },
-  { to:'/tickets', label:'Tickets', icon:'🎫', feature:'tickets' },
-  { to:'/ai',      label:'AI',      icon:'🤖' },
-  { to:'/reports', label:'Reports', icon:'📊', feature:'reports' },
-  { to:'/admin',   label:'Admin',   icon:'⚙️', roles:['admin'] },
-]
+import { getVisibleNavItems } from '../../config/access'
 export default function Sidebar() {
   const { logout, user } = useAuthStore()
-  const visibleNav = nav.filter(item =>
-    (!item.roles || item.roles.includes(user?.role)) &&
-    (!item.feature || isFeatureEnabled(item.feature))
-  )
+  const visibleNav = getVisibleNavItems(user)
   return (
     <aside style={{ width:64, background:'var(--bg2)', borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', alignItems:'center', paddingTop:12, paddingBottom:12, gap:4 }}>
       <div style={{ marginBottom:16 }}><NetPulseLogo size={36} /></div>
       {visibleNav.map(item => (
-        <NavLink key={item.to} to={item.to} title={item.label} style={({ isActive }) => ({ width:44, height:44, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, textDecoration:'none', transition:'all 0.15s', background: isActive ? 'var(--bg4)' : 'transparent', border: isActive ? '1px solid var(--border2)' : '1px solid transparent' })}>
+        <NavLink key={item.path} to={item.path} title={item.navLabel} style={({ isActive }) => ({ width:44, height:44, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, textDecoration:'none', transition:'all 0.15s', background: isActive ? 'var(--bg4)' : 'transparent', border: isActive ? '1px solid var(--border2)' : '1px solid transparent' })}>
           {item.icon}
         </NavLink>
       ))}

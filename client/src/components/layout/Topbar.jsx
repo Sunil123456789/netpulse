@@ -2,18 +2,13 @@ import { useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../../store/authStore'
 import { NetPulseLogoFull } from '../ui/NetPulseLogo.jsx'
-import { isFeatureEnabled } from '../../config/features'
-const titles = { '/home':'Command Center', '/soc':'Security Operations Center', '/zabbix':'Infrastructure Monitoring', '/noc':'Network Operations Center', '/edr':'Endpoint Detection & Response', '/tickets':'Ticket Management', '/ai':'AI Intelligence Center', '/reports':'Reports & Analytics', '/admin':'Administration' }
+import { getPageTitle } from '../../config/access'
 export default function Topbar() {
   const { pathname } = useLocation()
   const { user } = useAuthStore()
   const [time, setTime] = useState(new Date())
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t) }, [])
-  const title =
-    (!isFeatureEnabled('tickets') && pathname === '/tickets') ||
-    (!isFeatureEnabled('reports') && pathname === '/reports')
-      ? 'NetPulse'
-      : (titles[pathname] || 'NetPulse')
+  const title = getPageTitle(pathname, user)
   return (
     <header style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', background:'var(--bg2)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
       <div style={{ display:'flex', alignItems:'center', gap:16 }}>

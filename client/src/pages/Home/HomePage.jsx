@@ -4,6 +4,8 @@ import { Line } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js'
 import api from '../../api/client'
 import RangePicker from '../../components/ui/RangePicker.jsx'
+import { useAuthStore } from '../../store/authStore'
+import { canUseCapability } from '../../config/access'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
 
@@ -79,6 +81,7 @@ function sevBadge(sev) {
 }
 
 export default function HomePage() {
+  const user = useAuthStore(s => s.user)
   const [range, setRange] = useState('24h')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -109,6 +112,18 @@ export default function HomePage() {
   const alerts = data?.alerts || {}
   const timeline = data?.timeline || []
   const recentCritical = data?.recentCritical || []
+  const canViewTickets = canUseCapability('viewTickets', user)
+  const kpis = [
+    ...(canViewTickets ? [
+      { label:'Open Tickets', value:tickets.open ?? 0, color:'blue', sub:'open+in-progress' },
+      { label:'Critical', value:tickets.critical ?? 0, color:'red', sub:'tickets' },
+      { label:'High', value:tickets.high ?? 0, color:'amber', sub:'tickets' },
+    ] : []),
+    { label:'Alert Rules', value:alerts.total ?? 0, color:'blue', sub:'total rules' },
+    { label:'Enabled', value:alerts.enabled ?? 0, color:'green', sub:'active rules' },
+    { label:'Devices', value:data?.devices ?? 0, color:'blue', sub:'registered' },
+    { label:'Users', value:data?.users ?? 0, color:'blue', sub:'accounts' },
+  ]
 
   const tLabels = timeline.map(t => {
     const d = new Date(t.time)
@@ -171,14 +186,10 @@ export default function HomePage() {
       </div>
 
       {/* Section 2: Quick KPIs */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:10, flexShrink:0 }}>
-        <KPI label="Open Tickets" value={tickets.open ?? 0} color="blue" sub="open+in-progress" />
-        <KPI label="Critical" value={tickets.critical ?? 0} color="red" sub="tickets" />
-        <KPI label="High" value={tickets.high ?? 0} color="amber" sub="tickets" />
-        <KPI label="Alert Rules" value={alerts.total ?? 0} color="blue" sub="total rules" />
-        <KPI label="Enabled" value={alerts.enabled ?? 0} color="green" sub="active rules" />
-        <KPI label="Devices" value={data?.devices ?? 0} color="blue" sub="registered" />
-        <KPI label="Users" value={data?.users ?? 0} color="blue" sub="accounts" />
+      <div style={{ display:'grid', gridTemplateColumns:`repeat(${kpis.length}, minmax(0, 1fr))`, gap:10, flexShrink:0 }}>
+        {kpis.map(kpi => (
+          <KPI key={kpi.label} label={kpi.label} value={kpi.value} color={kpi.color} sub={kpi.sub} />
+        ))}
       </div>
 
       {/* Section 3: Combined Timeline */}
@@ -250,18 +261,19 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Ticket summary */}
-            <div>
-              <div style={{ fontSize:10, color: C.text3, fontFamily:'var(--mono)', marginBottom:6, letterSpacing:0.5 }}>OPEN TICKET SEVERITY</div>
-              <div style={{ display:'flex', gap:8 }}>
-                {['critical','high','medium','low'].map(sev => (
-                  <div key={sev} style={{ flex:1, textAlign:'center', padding:'6px 4px', background:'var(--bg3)', borderRadius:6, border:`1px solid ${SEV_COLOR[sev]}33` }}>
-                    <div style={{ fontSize:16, fontWeight:700, color: SEV_COLOR[sev] }}>{tickets[sev] ?? 0}</div>
-                    <div style={{ fontSize:9, color: C.text3, fontFamily:'var(--mono)', textTransform:'uppercase' }}>{sev}</div>
-                  </div>
-                ))}
+            {canViewTickets && (
+              <div>
+                <div style={{ fontSize:10, color: C.text3, fontFamily:'var(--mono)', marginBottom:6, letterSpacing:0.5 }}>OPEN TICKET SEVERITY</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  {['critical','high','medium','low'].map(sev => (
+                    <div key={sev} style={{ flex:1, textAlign:'center', padding:'6px 4px', background:'var(--bg3)', borderRadius:6, border:`1px solid ${SEV_COLOR[sev]}33` }}>
+                      <div style={{ fontSize:16, fontWeight:700, color: SEV_COLOR[sev] }}>{tickets[sev] ?? 0}</div>
+                      <div style={{ fontSize:9, color: C.text3, fontFamily:'var(--mono)', textTransform:'uppercase' }}>{sev}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </Card>
       </div>
