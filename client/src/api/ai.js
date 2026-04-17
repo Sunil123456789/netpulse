@@ -26,6 +26,32 @@ function withAITimeout(config = {}) {
   return { ...config, timeout: getAIRequestTimeoutMs() }
 }
 
+export function describeAIRequestError(err, fallbackMessage = 'Request failed') {
+  const message = err?.response?.data?.error || err?.message || fallbackMessage
+
+  if (err?.code === 'ERR_CANCELED' || /aborted|canceled/i.test(message)) {
+    return {
+      kind: 'canceled',
+      message: 'Request canceled',
+      detail: message,
+    }
+  }
+
+  if (err?.code === 'ECONNABORTED' || /timed out|timeout/i.test(message)) {
+    return {
+      kind: 'timeout',
+      message: `This request timed out after ${Math.round(getAIRequestTimeoutMs() / 1000)} seconds.`,
+      detail: message,
+    }
+  }
+
+  return {
+    kind: 'generic',
+    message,
+    detail: message,
+  }
+}
+
 export const aiAPI = {
   // Status
   getStatus: () => api.get('/api/ai/status'),
@@ -43,25 +69,25 @@ export const aiAPI = {
   getContext: (params) => api.get('/api/ai/context', { params }),
 
   // Chat
-  chat: (messages, context, dateRange, provider, model) =>
-    api.post('/api/ai/chat', { messages, context, dateRange, provider, model }, withAITimeout()),
+  chat: (messages, context, dateRange, provider, model, config = {}) =>
+    api.post('/api/ai/chat', { messages, context, dateRange, provider, model }, withAITimeout(config)),
   getChatHistory: () => api.get('/api/ai/chat/history', withAITimeout()),
-  compareModels: (question, context, dateRange, modelOverrides) =>
-    api.post('/api/ai/compare', { question, context, dateRange, modelOverrides }, withAITimeout()),
+  compareModels: (question, context, dateRange, modelOverrides, targets, config = {}) =>
+    api.post('/api/ai/compare', { question, context, dateRange, modelOverrides, targets }, withAITimeout(config)),
 
   // Search
-  search: (question, source, dateRange, provider, model) =>
-    api.post('/api/ai/search', { question, source, dateRange, provider, model }, withAITimeout()),
+  search: (question, source, dateRange, provider, model, config = {}) =>
+    api.post('/api/ai/search', { question, source, dateRange, provider, model }, withAITimeout(config)),
   getSearchHistory: () => api.get('/api/ai/search/history', withAITimeout()),
 
   // Triage
-  triage: (alert, provider, model) =>
-    api.post('/api/ai/triage', { alert, provider, model }, withAITimeout()),
+  triage: (alert, provider, model, config = {}) =>
+    api.post('/api/ai/triage', { alert, provider, model }, withAITimeout(config)),
   getTriageHistory: () => api.get('/api/ai/triage/history', withAITimeout()),
 
   // Brief
-  generateBrief: (dateRange, provider, model) =>
-    api.post('/api/ai/brief/generate', { dateRange, provider, model }, withAITimeout()),
+  generateBrief: (dateRange, provider, model, config = {}) =>
+    api.post('/api/ai/brief/generate', { dateRange, provider, model }, withAITimeout(config)),
   getLatestBrief: () => api.get('/api/ai/brief/latest', withAITimeout()),
   getBrief: (id) => api.get(`/api/ai/brief/${id}`, withAITimeout()),
   getBriefHistory: () => api.get('/api/ai/brief/history', withAITimeout()),
@@ -92,8 +118,8 @@ export const mlAPI = {
   getMetrics: () => api.get('/api/ml/baseline/metrics'),
 
   // Anomaly
-  detectAnomalies: (dateRange, sensitivity, sources) =>
-    api.post('/api/ml/anomaly/detect', { dateRange, sensitivity, sources }, withAITimeout()),
+  detectAnomalies: (dateRange, sensitivity, sources, config = {}) =>
+    api.post('/api/ml/anomaly/detect', { dateRange, sensitivity, sources }, withAITimeout(config)),
   getAnomalyHistory: () => api.get('/api/ml/anomaly/history', withAITimeout()),
   getAnomalyRun: (id) => api.get(`/api/ml/anomaly/${id}`, withAITimeout()),
   saveAnomalyFeedback: (id, anomalyIndex, feedback) =>
@@ -111,8 +137,8 @@ export const mlAPI = {
 
   // Improvement
   getStats: (model) => api.get(`/api/ml/improve/stats/${model}`),
-  requestImprovement: (mlModel, provider, model) =>
-    api.post('/api/ml/improve/request', { mlModel, provider, model }, withAITimeout()),
+  requestImprovement: (mlModel, provider, model, config = {}) =>
+    api.post('/api/ml/improve/request', { mlModel, provider, model }, withAITimeout(config)),
   applyImprovement: (id) => api.post(`/api/ml/improve/${id}/apply`, {}, withAITimeout()),
   rejectImprovement: (id) => api.post(`/api/ml/improve/${id}/reject`, {}, withAITimeout()),
   getImprovementHistory: (model) =>

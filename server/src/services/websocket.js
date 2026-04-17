@@ -1,12 +1,93 @@
 import jwt from 'jsonwebtoken'
 import { getESClient } from '../config/elasticsearch.js'
 import User from '../models/User.js'
+import { streamChat } from './ai/chat.js'
 
 const LIVE_FEED_ROOMS = new Set(['soc', 'noc'])
 const AUTHENTICATED_ROOM = 'authenticated'
+const activeChatStreams = new Map()
 
 function getRoomSize(io, room) {
   return io.sockets.adapter.rooms.get(room)?.size || 0
+}
+
+function getChatStreamKey(socketId, requestId) {
+  return `${socketId}:${requestId}`
+}
+
+function emitChatEvent(socket, event, requestId, payload = {}) {
+  socket.emit(event, { requestId, ...payload })
+}
+
+function assertValidChatMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('messages array is required')
+  }
+
+  for (const msg of messages) {
+    if (!msg?.role || !msg?.content) {
+      throw new Error('Each message must have role and content')
+    }
+    if (!['user', 'assistant'].includes(msg.role)) {
+      throw new Error('Message role must be user or assistant')
+    }
+  }
+}
+
+async function handleChatStream(socket, payload = {}) {
+  const requestId = String(payload.requestId || '').trim()
+  if (!requestId) {
+    emitChatEvent(socket, 'ai:chat:error', null, {
+      code: 'bad_request',
+      error: 'requestId is required',
+    })
+    return
+  }
+
+  try {
+    assertValidChatMessages(payload.messages)
+  } catch (err) {
+    emitChatEvent(socket, 'ai:chat:error', requestId, {
+      code: 'bad_request',
+      error: err.message,
+    })
+    return
+  }
+
+  const key = getChatStreamKey(socket.id, requestId)
+  activeChatStreams.get(key)?.abort()
+
+  const controller = new AbortController()
+  activeChatStreams.set(key, controller)
+  emitChatEvent(socket, 'ai:chat:stage', requestId, {
+    stage: 'queued',
+    message: 'Preparing request...',
+  })
+
+  try {
+    const result = await streamChat({
+      messages: payload.messages,
+      context: payload.context || 'all',
+      dateRange: payload.dateRange || null,
+      overrideProvider: payload.provider || null,
+      overrideModel: payload.model || null,
+      signal: controller.signal,
+      onStage: (stage, message) => emitChatEvent(socket, 'ai:chat:stage', requestId, { stage, message }),
+      onToken: delta => emitChatEvent(socket, 'ai:chat:chunk', requestId, { delta }),
+    })
+
+    if (!controller.signal.aborted) {
+      emitChatEvent(socket, 'ai:chat:done', requestId, result)
+    }
+  } catch (err) {
+    const aborted = controller.signal.aborted || err?.name === 'AbortError'
+    emitChatEvent(socket, 'ai:chat:error', requestId, {
+      code: aborted ? 'aborted' : 'chat_failed',
+      error: aborted ? 'Chat canceled' : err.message,
+    })
+  } finally {
+    activeChatStreams.delete(key)
+  }
 }
 
 export function initWebSocket(io) {
@@ -44,7 +125,31 @@ export function initWebSocket(io) {
       console.log(`${socket.id} subscribed to ${requestedRoom}`)
     })
 
-    socket.on('disconnect', () => console.log('Client disconnected:', socket.id))
+    socket.on('ai:chat:start', payload => {
+      handleChatStream(socket, payload).catch(err => {
+        const requestId = String(payload?.requestId || '').trim() || null
+        emitChatEvent(socket, 'ai:chat:error', requestId, {
+          code: 'chat_failed',
+          error: err.message,
+        })
+      })
+    })
+
+    socket.on('ai:chat:cancel', payload => {
+      const requestId = String(payload?.requestId || '').trim()
+      if (!requestId) return
+      activeChatStreams.get(getChatStreamKey(socket.id, requestId))?.abort()
+    })
+
+    socket.on('disconnect', () => {
+      for (const [key, controller] of activeChatStreams.entries()) {
+        if (key.startsWith(`${socket.id}:`)) {
+          controller.abort()
+          activeChatStreams.delete(key)
+        }
+      }
+      console.log('Client disconnected:', socket.id)
+    })
   })
 
   setInterval(async () => {

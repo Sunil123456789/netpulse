@@ -73,6 +73,58 @@ class TaskRouter {
     }
   }
 
+  async routeStream(
+    task,
+    messages,
+    systemPrompt,
+    overrideProvider = null,
+    overrideModel = null,
+    handlers = {},
+    signal = null
+  ) {
+    const config = await this.getTaskConfig(task)
+    const providerName = overrideProvider || config.provider
+    const model = overrideModel || config.model || 'auto'
+    const provider = this.getProvider(providerName)
+
+    if (!provider.isConfigured() && providerName !== 'ollama') {
+      const ollamaRunning = await ollamaProvider.isRunning()
+      if (ollamaRunning) {
+        handlers.onStage?.('fallback', `${providerName} unavailable, switching to Ollama`)
+        return await ollamaProvider.streamChat(messages, systemPrompt, 'auto', {
+          onToken: handlers.onToken,
+          signal,
+        })
+      }
+      throw new Error(`${providerName} API key not configured and Ollama not available`)
+    }
+
+    try {
+      if (typeof provider.streamChat === 'function') {
+        return await provider.streamChat(messages, systemPrompt, model, {
+          onToken: handlers.onToken,
+          signal,
+        })
+      }
+
+      const result = await provider.chat(messages, systemPrompt, model, { signal })
+      if (result.content) handlers.onToken?.(result.content)
+      return result
+    } catch (err) {
+      if (providerName !== 'ollama' && this.shouldFallbackToOllama(err)) {
+        const ollamaRunning = await ollamaProvider.isRunning()
+        if (ollamaRunning) {
+          handlers.onStage?.('fallback', `${providerName} failed, switching to Ollama`)
+          return await ollamaProvider.streamChat(messages, systemPrompt, 'auto', {
+            onToken: handlers.onToken,
+            signal,
+          })
+        }
+      }
+      throw err
+    }
+  }
+
   async updateLastRun(task, status, durationMs) {
     await AITaskConfig.findOneAndUpdate(
       { task },

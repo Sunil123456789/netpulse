@@ -24,8 +24,9 @@ class OllamaProvider {
     ].includes(code)
   }
 
-  async makeRequest(url, payload, method, timeoutMs, rejectUnauthorized) {
+  async makeRequest(url, payload, method, timeoutMs, rejectUnauthorized, signal = null) {
     const transport = url.protocol === 'https:' ? https : http
+    let cleanup = () => {}
     return await new Promise((resolve, reject) => {
       const req = transport.request({
         protocol: url.protocol,
@@ -57,32 +58,52 @@ class OllamaProvider {
         req.destroy(new Error(`Ollama request timed out after ${timeoutMs}ms`))
       })
       req.on('error', reject)
+      cleanup = this.bindAbortSignal(signal, err => req.destroy(err))
 
       if (payload) req.write(payload)
       req.end()
     })
+      .finally(() => cleanup())
   }
 
-  async request(endpoint, { method = 'GET', body = null, timeoutMs = 5000 } = {}) {
+  async request(endpoint, { method = 'GET', body = null, timeoutMs = 5000, signal = null } = {}) {
     const url = this.buildUrl(endpoint)
     const payload = body ? JSON.stringify(body) : null
     const rejectUnauthorized = !this.allowInsecureTls
 
     try {
-      return await this.makeRequest(url, payload, method, timeoutMs, rejectUnauthorized)
+      return await this.makeRequest(url, payload, method, timeoutMs, rejectUnauthorized, signal)
     } catch (err) {
       if (url.protocol === 'https:' && rejectUnauthorized && this.isRetryableTlsError(err)) {
         if (!this.warnedOnTlsRetry) {
           this.warnedOnTlsRetry = true
           console.warn(`Ollama TLS certificate is untrusted for ${url.origin}; retrying with insecure TLS`)
         }
-        return await this.makeRequest(url, payload, method, timeoutMs, false)
+        return await this.makeRequest(url, payload, method, timeoutMs, false, signal)
       }
       throw err
     }
   }
 
-  async chat(messages, systemPrompt, model = 'auto') {
+  makeAbortError() {
+    const err = new Error('Ollama request aborted')
+    err.name = 'AbortError'
+    return err
+  }
+
+  bindAbortSignal(signal, destroy) {
+    if (!signal) return () => {}
+    if (signal.aborted) {
+      destroy(this.makeAbortError())
+      return () => {}
+    }
+
+    const onAbort = () => destroy(this.makeAbortError())
+    signal.addEventListener('abort', onAbort)
+    return () => signal.removeEventListener('abort', onAbort)
+  }
+
+  async chat(messages, systemPrompt, model = 'auto', options = {}) {
     const useModel = model === 'auto' ? this.defaultModel : model
     const startTime = Date.now()
 
@@ -100,6 +121,7 @@ class OllamaProvider {
         options: { num_predict: 2048 },
       },
       timeoutMs: this.chatTimeoutMs,
+      signal: options.signal,
     })
 
     if (!response.ok) {
@@ -114,6 +136,141 @@ class OllamaProvider {
       model: useModel,
       provider: 'ollama',
       responseTimeMs: Date.now() - startTime,
+    }
+  }
+
+  async makeStreamingRequest(url, payload, timeoutMs, rejectUnauthorized, { onLine, signal } = {}) {
+    const transport = url.protocol === 'https:' ? https : http
+
+    return await new Promise((resolve, reject) => {
+      let settled = false
+      let cleanup = () => {}
+      const finish = (fn, value) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        fn(value)
+      }
+
+      const req = transport.request({
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+        ...(url.protocol === 'https:' ? { rejectUnauthorized } : {}),
+      }, res => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          let body = ''
+          res.setEncoding('utf8')
+          res.on('data', chunk => { body += chunk })
+          res.on('end', () => finish(reject, new Error(`Ollama error: ${res.statusCode}${body ? ` ${body}` : ''}`)))
+          return
+        }
+
+        let buffer = ''
+        res.setEncoding('utf8')
+        res.on('data', chunk => {
+          buffer += chunk
+
+          let newlineIndex = buffer.indexOf('\n')
+          while (newlineIndex >= 0) {
+            const line = buffer.slice(0, newlineIndex).trim()
+            buffer = buffer.slice(newlineIndex + 1)
+            if (line) onLine?.(line, finish)
+            newlineIndex = buffer.indexOf('\n')
+          }
+        })
+
+        res.on('end', () => {
+          const finalLine = buffer.trim()
+          if (finalLine) onLine?.(finalLine, finish)
+          finish(resolve)
+        })
+      })
+
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`Ollama request timed out after ${timeoutMs}ms`))
+      })
+      req.on('error', err => finish(reject, err))
+
+      cleanup = this.bindAbortSignal(signal, err => req.destroy(err))
+
+      req.write(payload)
+      req.end()
+    })
+  }
+
+  async streamChat(messages, systemPrompt, model = 'auto', { onToken, signal } = {}) {
+    const useModel = model === 'auto' ? this.defaultModel : model
+    const startTime = Date.now()
+    const allMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ]
+
+    const url = this.buildUrl('api/chat')
+    const payload = JSON.stringify({
+      model: useModel,
+      messages: allMessages,
+      stream: true,
+      options: { num_predict: 2048 },
+    })
+
+    const execute = async (rejectUnauthorized) => {
+      let content = ''
+      let promptEvalCount = 0
+      let evalCount = 0
+
+      await this.makeStreamingRequest(
+        url,
+        payload,
+        this.chatTimeoutMs,
+        rejectUnauthorized,
+        {
+          signal,
+          onLine: (line) => {
+            let data
+            try {
+              data = JSON.parse(line)
+            } catch {
+              return
+            }
+            const delta = data.message?.content || ''
+            if (delta) {
+              content += delta
+              onToken?.(delta)
+            }
+            promptEvalCount = data.prompt_eval_count ?? promptEvalCount
+            evalCount = data.eval_count ?? evalCount
+          },
+        }
+      )
+
+      return {
+        content,
+        tokensUsed: promptEvalCount + evalCount,
+        model: useModel,
+        provider: 'ollama',
+        responseTimeMs: Date.now() - startTime,
+      }
+    }
+
+    try {
+      return await execute(!this.allowInsecureTls)
+    } catch (err) {
+      if (url.protocol === 'https:' && !this.allowInsecureTls && this.isRetryableTlsError(err)) {
+        if (!this.warnedOnTlsRetry) {
+          this.warnedOnTlsRetry = true
+          console.warn(`Ollama TLS certificate is untrusted for ${url.origin}; retrying with insecure TLS`)
+        }
+        return await execute(false)
+      }
+      throw err
     }
   }
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { aiAPI, mlAPI } from '../../../api/ai.js'
+import { useEffect, useRef, useState } from 'react'
+import { aiAPI, describeAIRequestError, mlAPI } from '../../../api/ai.js'
 import { buildDateRange, getProviderOverrideModels, getReadyProviders } from '../utils/common.js'
 
 export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }) {
@@ -18,6 +18,8 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
   const [improvementProvider, setImprovementProvider] = useState(null)
   const [improvementModel, setImprovementModel] = useState(null)
   const [latestImprovement, setLatestImprovement] = useState(null)
+  const [improvementError, setImprovementError] = useState(null)
+  const improvementAbortRef = useRef(null)
 
   const availableProviders = getReadyProviders(providerStatus)
   const improvementOverrideModels = getProviderOverrideModels(improvementProvider, providerStatus, ollamaStatus)
@@ -33,6 +35,10 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
   useEffect(() => {
     refreshAnomalyHistory()
     refreshBaselineStatus()
+  }, [])
+
+  useEffect(() => () => {
+    improvementAbortRef.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -106,11 +112,15 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
 
   async function requestImprovement() {
     setImprovementLoading(true)
+    setImprovementError(null)
+    const controller = new AbortController()
+    improvementAbortRef.current = controller
     try {
       const { data } = await mlAPI.requestImprovement(
         mlModel,
         improvementProvider || undefined,
         improvementModel || undefined,
+        { signal: controller.signal },
       )
       setLatestImprovement(data)
       const [statsRes, historyRes] = await Promise.allSettled([
@@ -121,10 +131,19 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
       if (historyRes.status === 'fulfilled') setImprovementHistory(historyRes.value.data || [])
       addToast('Improvement suggestion generated', 'success')
     } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
+      const error = describeAIRequestError(err, 'Improvement analysis failed')
+      if (error.kind !== 'canceled') {
+        setImprovementError(error)
+        addToast(error.message, 'error')
+      }
     } finally {
+      improvementAbortRef.current = null
       setImprovementLoading(false)
     }
+  }
+
+  function cancelImprovementRequest() {
+    improvementAbortRef.current?.abort()
   }
 
   async function applySuggestion(id) {
@@ -165,6 +184,7 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
     improvementStats,
     improvementHistory,
     improvementLoading,
+    improvementError,
     improvementProvider,
     setImprovementProvider,
     improvementModel,
@@ -177,6 +197,8 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
     runScheduled,
     saveFeedback,
     requestImprovement,
+    cancelImprovementRequest,
+    retryImprovementRequest: requestImprovement,
     applySuggestion,
     rejectSuggestion,
   }

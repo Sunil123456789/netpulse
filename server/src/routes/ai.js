@@ -293,7 +293,7 @@ router.get('/chat/history', async (req, res) => {
 // POST /api/ai/compare
 router.post('/compare', async (req, res) => {
   try {
-    const { question, context, dateRange, modelOverrides } = req.body
+    const { question, context, dateRange, modelOverrides, targets } = req.body
 
     if (!question || !String(question).trim()) {
       return res.status(400).json({ error: 'question is required' })
@@ -304,6 +304,7 @@ router.post('/compare', async (req, res) => {
       context: context || 'all',
       dateRange: dateRange || null,
       modelOverrides: modelOverrides || {},
+      targets: Array.isArray(targets) ? targets : [],
     })
 
     res.json(result)

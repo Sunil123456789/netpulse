@@ -4,6 +4,7 @@ import { taskRouter } from './taskRouter.js'
 import { claudeProvider } from './providers/claude.js'
 import { openaiProvider } from './providers/openai.js'
 import { ollamaProvider } from './providers/ollama.js'
+import { buildDisplayFromText, buildMetering } from './presentation.js'
 
 const MODEL_LAB_PROMPT = `You are NetPulse AI, an intelligent network
 and security operations assistant for Lenskart's IT infrastructure.
@@ -30,11 +31,59 @@ function getSources(context) {
     : ['es', 'zabbix', 'mongo']
 }
 
+function buildRunner({ provider, model, index, ollamaReady }) {
+  const useModel = model || 'auto'
+  const targetId = `${provider}:${useModel}:${index}`
+
+  if (provider === 'claude') {
+    return {
+      targetId,
+      provider,
+      model: useModel,
+      ready: claudeProvider.isConfigured(),
+      execute: (messages, systemPrompt) => claudeProvider.chat(messages, systemPrompt, useModel),
+      reason: 'ANTHROPIC_API_KEY not set',
+    }
+  }
+
+  if (provider === 'openai') {
+    return {
+      targetId,
+      provider,
+      model: useModel,
+      ready: openaiProvider.isConfigured(),
+      execute: (messages, systemPrompt) => openaiProvider.chat(messages, systemPrompt, useModel),
+      reason: 'OPENAI_API_KEY not set',
+    }
+  }
+
+  if (provider === 'ollama') {
+    return {
+      targetId,
+      provider,
+      model: useModel,
+      ready: ollamaReady,
+      execute: (messages, systemPrompt) => ollamaProvider.chat(messages, systemPrompt, useModel),
+      reason: 'Ollama not running',
+    }
+  }
+
+  return {
+    targetId,
+    provider,
+    model: useModel,
+    ready: false,
+    execute: null,
+    reason: `Unknown provider: ${provider}`,
+  }
+}
+
 async function compareModels({
   question,
   context = 'all',
   dateRange = null,
   modelOverrides = {},
+  targets = [],
 }) {
   const sources = getSources(context)
   const contextData = await buildContext(sources, dateRange)
@@ -47,29 +96,20 @@ Instructions: Use the above context to answer the user's question accurately.
 Reference concrete data points whenever possible.`
 
   const messages = [{ role: 'user', content: question }]
-  const runners = [
-    {
-      provider: 'claude',
-      ready: claudeProvider.isConfigured(),
-      model: modelOverrides.claude || 'auto',
-      run: () => claudeProvider.chat(messages, systemWithContext, modelOverrides.claude || 'auto'),
-      reason: 'ANTHROPIC_API_KEY not set',
-    },
-    {
-      provider: 'openai',
-      ready: openaiProvider.isConfigured(),
-      model: modelOverrides.openai || 'auto',
-      run: () => openaiProvider.chat(messages, systemWithContext, modelOverrides.openai || 'auto'),
-      reason: 'OPENAI_API_KEY not set',
-    },
-    {
-      provider: 'ollama',
-      ready: await ollamaProvider.isRunning(),
-      model: modelOverrides.ollama || 'auto',
-      run: () => ollamaProvider.chat(messages, systemWithContext, modelOverrides.ollama || 'auto'),
-      reason: 'Ollama not running',
-    },
-  ]
+  const ollamaReady = await ollamaProvider.isRunning()
+  const explicitTargets = Array.isArray(targets) && targets.length > 0
+  const requestedTargets = explicitTargets
+    ? targets.map((target, index) => ({
+      provider: String(target?.provider || '').trim().toLowerCase(),
+      model: String(target?.model || '').trim() || 'auto',
+      index,
+    }))
+    : ['claude', 'openai', 'ollama'].map((provider, index) => ({
+      provider,
+      model: modelOverrides[provider] || 'auto',
+      index,
+    }))
+  const runners = requestedTargets.map(target => buildRunner({ ...target, ollamaReady }))
 
   const active = runners.filter(r => r.ready)
   if (active.length === 0) {
@@ -79,15 +119,22 @@ Reference concrete data points whenever possible.`
   const comparisons = await Promise.all(runners.map(async (runner) => {
     if (!runner.ready) {
       return {
+        targetId: runner.targetId,
         provider: runner.provider,
         model: runner.model,
         available: false,
         error: runner.reason,
+        metering: buildMetering({
+          provider: runner.provider,
+          model: runner.model,
+          tokensUsed: 0,
+          responseTimeMs: 0,
+        }),
       }
     }
 
     try {
-      const result = await runner.run()
+      const result = await runner.execute(messages, systemWithContext)
       const scoring = await scoreResponse({
         task: 'comparison',
         provider: result.provider,
@@ -100,6 +147,7 @@ Reference concrete data points whenever possible.`
       })
 
       return {
+        targetId: runner.targetId,
         provider: result.provider,
         model: result.model,
         available: true,
@@ -109,13 +157,22 @@ Reference concrete data points whenever possible.`
         totalScore: scoring.totalScore,
         scores: scoring.scores,
         scoreId: scoring.scoreId,
+        display: buildDisplayFromText({ text: result.content }),
+        metering: buildMetering(result),
       }
     } catch (err) {
       return {
+        targetId: runner.targetId,
         provider: runner.provider,
         model: runner.model,
         available: true,
         error: err.message,
+        metering: buildMetering({
+          provider: runner.provider,
+          model: runner.model,
+          tokensUsed: 0,
+          responseTimeMs: 0,
+        }),
       }
     }
   }))
@@ -135,10 +192,12 @@ Reference concrete data points whenever possible.`
     question,
     context,
     dateRange,
+    mode: explicitTargets ? 'same-provider' : 'providers',
     comparedAt: new Date().toISOString(),
     contextSources: contextData.sources,
     comparisons,
     winner: best ? {
+      targetId: best.targetId,
       provider: best.provider,
       model: best.model,
       totalScore: best.totalScore,

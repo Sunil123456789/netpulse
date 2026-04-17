@@ -3,6 +3,7 @@ import { scoreResponse } from './scorer.js'
 import { buildContext } from './context.js'
 import AIBrief from '../../models/AIBrief.js'
 import { getESClient } from '../../config/elasticsearch.js'
+import { buildBriefDisplay, buildMetering } from './presentation.js'
 
 const BRIEF_SYSTEM_PROMPT = `You are a senior network security analyst
 writing an intelligence brief for Lenskart's IT leadership team.
@@ -138,7 +139,7 @@ and infrastructure status. Include specific numbers and actionable recommendatio
 
   await taskRouter.updateLastRun('brief', 'success', Date.now() - startTime)
 
-  return {
+  return buildBriefResponse(savedBrief, {
     id: savedBrief._id,
     title: briefData.title,
     executiveSummary: briefData.executiveSummary,
@@ -153,8 +154,8 @@ and infrastructure status. Include specific numbers and actionable recommendatio
     scores: scoring.scores,
     totalScore: scoring.totalScore,
     scoreId: scoring.scoreId,
-    generatedAt: savedBrief.generatedAt
-  }
+    generatedAt: savedBrief.generatedAt,
+  })
 }
 
 async function fetchAdditionalStats(from, to) {
@@ -229,19 +230,43 @@ async function fetchAdditionalStats(from, to) {
 }
 
 async function getLatestBrief() {
-  return AIBrief.findOne().sort({ generatedAt: -1 }).lean()
+  const brief = await AIBrief.findOne().sort({ generatedAt: -1 }).lean()
+  return buildBriefResponse(brief)
 }
 
 async function getBriefById(id) {
-  return AIBrief.findById(id).lean()
+  const brief = await AIBrief.findById(id).lean()
+  return buildBriefResponse(brief)
 }
 
 async function getBriefHistory(limit = 30) {
-  return AIBrief.find()
+  const history = await AIBrief.find()
     .sort({ generatedAt: -1 })
     .limit(limit)
     .select('-fullReport')
     .lean()
+
+  return history.map(item => buildBriefResponse(item))
+}
+
+function buildBriefResponse(record, overrides = {}) {
+  if (!record) return null
+
+  const base = {
+    ...record,
+    ...overrides,
+  }
+
+  return {
+    ...base,
+    display: buildBriefDisplay(base),
+    metering: buildMetering({
+      provider: base.provider,
+      model: base.model,
+      tokensUsed: base.tokensUsed,
+      responseTimeMs: base.generationTimeMs,
+    }),
+  }
 }
 
 export { generateBrief, getLatestBrief, getBriefById, getBriefHistory }
