@@ -15,7 +15,7 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
   const [ticketCreated, setTicketCreated] = useState(null)
 
   useEffect(() => {
-    aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => {})
+    aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => null)
   }, [])
 
   const availableProviders = getReadyProviders(providerStatus)
@@ -57,7 +57,7 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
         triageModel || undefined,
       )
       setTriageResult(data)
-      aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => {})
+      aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => null)
       addToast('Triage complete', 'success')
       return true
     } catch (err) {
@@ -74,7 +74,9 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
       await aiAPI.rateResponse(triageResult.scoreId, star)
       setStarRated(true)
       addToast('Rating saved', 'success')
-    } catch {}
+    } catch {
+      addToast('Rating failed', 'error')
+    }
   }
 
   async function createTicket() {

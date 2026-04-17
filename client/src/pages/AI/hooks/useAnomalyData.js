@@ -23,21 +23,11 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
   const improvementOverrideModels = getProviderOverrideModels(improvementProvider, providerStatus, ollamaStatus)
 
   function refreshAnomalyHistory() {
-    return mlAPI.getAnomalyHistory().then(r => setAnomalyHistory(r.data || [])).catch(() => {})
+    return mlAPI.getAnomalyHistory().then(r => setAnomalyHistory(r.data || [])).catch(() => null)
   }
 
   function refreshBaselineStatus() {
-    return mlAPI.getBaselineStatus().then(r => setBaselineStatus(r.data || [])).catch(() => {})
-  }
-
-  function refreshImprovementData(model = mlModel) {
-    return Promise.allSettled([
-      mlAPI.getStats(model),
-      mlAPI.getImprovementHistory(model),
-    ]).then(([statsRes, historyRes]) => {
-      if (statsRes.status === 'fulfilled') setImprovementStats(statsRes.value.data || null)
-      if (historyRes.status === 'fulfilled') setImprovementHistory(historyRes.value.data || [])
-    })
+    return mlAPI.getBaselineStatus().then(r => setBaselineStatus(r.data || [])).catch(() => null)
   }
 
   useEffect(() => {
@@ -46,7 +36,13 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
   }, [])
 
   useEffect(() => {
-    refreshImprovementData(mlModel)
+    Promise.allSettled([
+      mlAPI.getStats(mlModel),
+      mlAPI.getImprovementHistory(mlModel),
+    ]).then(([statsRes, historyRes]) => {
+      if (statsRes.status === 'fulfilled') setImprovementStats(statsRes.value.data || null)
+      if (historyRes.status === 'fulfilled') setImprovementHistory(historyRes.value.data || [])
+    })
   }, [mlModel])
 
   function toggleSource(src) {
@@ -117,7 +113,12 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
         improvementModel || undefined,
       )
       setLatestImprovement(data)
-      await refreshImprovementData(mlModel)
+      const [statsRes, historyRes] = await Promise.allSettled([
+        mlAPI.getStats(mlModel),
+        mlAPI.getImprovementHistory(mlModel),
+      ])
+      if (statsRes.status === 'fulfilled') setImprovementStats(statsRes.value.data || null)
+      if (historyRes.status === 'fulfilled') setImprovementHistory(historyRes.value.data || [])
       addToast('Improvement suggestion generated', 'success')
     } catch (err) {
       addToast(err.response?.data?.error || err.message, 'error')
@@ -130,7 +131,7 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
     try {
       const { data } = await mlAPI.applyImprovement(id)
       setLatestImprovement(prev => (prev?.id === id ? { ...prev, status: data.status, appliedAt: data.appliedAt } : prev))
-      mlAPI.getImprovementHistory(mlModel).then(r => setImprovementHistory(r.data || [])).catch(() => {})
+      mlAPI.getImprovementHistory(mlModel).then(r => setImprovementHistory(r.data || [])).catch(() => null)
       addToast('Improvement marked as applied', 'success')
     } catch (err) {
       addToast(err.response?.data?.error || err.message, 'error')
@@ -141,7 +142,7 @@ export function useAnomalyData({ range, providerStatus, ollamaStatus, addToast }
     try {
       await mlAPI.rejectImprovement(id)
       setLatestImprovement(prev => (prev?.id === id ? { ...prev, status: 'rejected' } : prev))
-      mlAPI.getImprovementHistory(mlModel).then(r => setImprovementHistory(r.data || [])).catch(() => {})
+      mlAPI.getImprovementHistory(mlModel).then(r => setImprovementHistory(r.data || [])).catch(() => null)
       addToast('Improvement rejected', 'success')
     } catch (err) {
       addToast(err.response?.data?.error || err.message, 'error')

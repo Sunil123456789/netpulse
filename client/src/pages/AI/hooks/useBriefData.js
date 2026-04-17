@@ -23,8 +23,8 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
   }
 
   useEffect(() => {
-    aiAPI.getLatestBrief().then(r => setBrief(normalizeBriefPayload(r.data))).catch(() => {})
-    aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => {})
+    aiAPI.getLatestBrief().then(r => setBrief(normalizeBriefPayload(r.data))).catch(() => null)
+    aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => null)
   }, [])
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
         briefModel || undefined,
       )
       setBrief(normalizeBriefPayload(data))
-      aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => {})
+      aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => null)
       addToast('Brief generated successfully', 'success')
     } catch (err) {
       addToast(err.response?.data?.error || err.message, 'error')
@@ -70,7 +70,9 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
       if (histRes.status === 'fulfilled') setBriefHistory(histRes.value.data || [])
       setSelectedBrief(null)
       addToast('Refreshed', 'success')
-    } catch {}
+    } catch {
+      addToast('Refresh failed', 'error')
+    }
   }
 
   async function loadHistoryBrief(historyItem) {
@@ -96,7 +98,9 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
       await aiAPI.rateResponse(displayed.scoreId, star)
       setStarRated(true)
       addToast('Rating saved', 'success')
-    } catch {}
+    } catch {
+      addToast('Rating failed', 'error')
+    }
   }
 
   return {

@@ -12,7 +12,7 @@ export function useModelLabComparison({ range, providerStatus, ollamaStatus, add
   const [modelOverrides, setModelOverrides] = useState({ claude: 'auto', openai: 'auto', ollama: 'auto' })
 
   useEffect(() => {
-    aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => {})
+    aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => null)
   }, [])
 
   const providerModels = {
@@ -46,7 +46,7 @@ export function useModelLabComparison({ range, providerStatus, ollamaStatus, add
       )
       setQuestion(prompt)
       setComparisonResult(data)
-      aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => {})
+      aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => null)
       addToast('Model comparison complete', 'success')
       return true
     } catch (err) {
@@ -63,7 +63,9 @@ export function useModelLabComparison({ range, providerStatus, ollamaStatus, add
       await aiAPI.rateResponse(scoreId, star)
       setRatedScores(prev => ({ ...prev, [scoreId]: true }))
       addToast('Rating saved', 'success')
-    } catch {}
+    } catch {
+      addToast('Rating failed', 'error')
+    }
   }
 
   return {
