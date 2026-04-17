@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { aiAPI } from '../../../api/ai.js'
+import { useRef, useState } from 'react'
 import { C, CTX_OPTIONS, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
-import { buildDateRange, formatTimestamp, getProviderOverrideModels } from '../utils/common.js'
+import { formatTimestamp } from '../utils/common.js'
+import { useModelLabComparison } from '../hooks/useModelLabComparison.js'
 
 const MODEL_LAB_SUGGESTIONS = [
   'Summarize the current network risk posture',
@@ -117,66 +117,35 @@ function ModelLabResponseCard({ result, isWinner, rated, hoveredStar, setHovered
 }
 
 export default function ModelLabTab({ providerStatus, ollamaStatus, range, addToast }) {
-  const [question, setQuestion] = useState('')
-  const [labContext, setLabContext] = useState('all')
-  const [modelLabLoading, setModelLabLoading] = useState(false)
-  const [comparisonResult, setComparisonResult] = useState(null)
-  const [comparisonHistory, setComparisonHistory] = useState([])
-  const [ratedScores, setRatedScores] = useState({})
   const [hoveredStars, setHoveredStars] = useState({})
-  const [modelOverrides, setModelOverrides] = useState({ claude: 'auto', openai: 'auto', ollama: 'auto' })
   const inputRef = useRef(null)
+  const {
+    question,
+    setQuestion,
+    labContext,
+    setLabContext,
+    modelLabLoading,
+    comparisonResult,
+    comparisonHistory,
+    ratedScores,
+    modelOverrides,
+    setModelOverrides,
+    providerModels,
+    isReady,
+    runComparison,
+    rateComparison,
+  } = useModelLabComparison({
+    range,
+    providerStatus,
+    ollamaStatus,
+    addToast,
+  })
 
-  useEffect(() => {
-    aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => {})
-  }, [])
-
-  const providerModels = {
-    claude: getProviderOverrideModels('claude', providerStatus, ollamaStatus),
-    openai: getProviderOverrideModels('openai', providerStatus, ollamaStatus),
-    ollama: getProviderOverrideModels('ollama', providerStatus, ollamaStatus),
-  }
-
-  async function runComparison(text = question) {
-    const prompt = text.trim()
-    if (!prompt || modelLabLoading) return
-    setModelLabLoading(true)
-    setRatedScores({})
-    try {
-      const { data } = await aiAPI.compareModels(
-        prompt,
-        labContext,
-        buildDateRange(range),
-        {
-          claude: modelOverrides.claude === 'auto' ? null : modelOverrides.claude,
-          openai: modelOverrides.openai === 'auto' ? null : modelOverrides.openai,
-          ollama: modelOverrides.ollama === 'auto' ? null : modelOverrides.ollama,
-        }
-      )
-      setQuestion(prompt)
-      setComparisonResult(data)
-      aiAPI.getRecentScores('comparison').then(r => setComparisonHistory(r.data || [])).catch(() => {})
-      addToast('Model comparison complete', 'success')
-    } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
-    } finally {
-      setModelLabLoading(false)
+  async function handleRunComparison(text = question) {
+    const ran = await runComparison(text)
+    if (ran) {
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }
-
-  async function rateComparison(scoreId, star) {
-    if (!scoreId || ratedScores[scoreId]) return
-    try {
-      await aiAPI.rateResponse(scoreId, star)
-      setRatedScores(prev => ({ ...prev, [scoreId]: true }))
-      addToast('Rating saved', 'success')
-    } catch {}
-  }
-
-  function isReady(provider) {
-    if (provider === 'ollama') return !!ollamaStatus?.connected
-    return !!providerStatus?.[provider]?.ready
   }
 
   const resultCards = comparisonResult?.comparisons || []
@@ -228,7 +197,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
               value={question}
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runComparison() }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleRunComparison() }
               }}
               rows={3}
               placeholder="Ask one question and compare how each provider answers it"
@@ -247,7 +216,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
               }}
             />
             <button
-              onClick={() => runComparison()}
+              onClick={() => handleRunComparison()}
               disabled={!question.trim() || modelLabLoading}
               style={{
                 minWidth: 150,
@@ -270,7 +239,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
             {MODEL_LAB_SUGGESTIONS.map(s => (
               <button
                 key={s}
-                onClick={() => runComparison(s)}
+                onClick={() => handleRunComparison(s)}
                 disabled={modelLabLoading}
                 style={{
                   fontSize: 10,

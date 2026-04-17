@@ -33,6 +33,7 @@ import './models/AIBrief.js'
 import './models/AIBaseline.js'
 import './models/AIMLImprovement.js'
 import './models/AIMLFeedback.js'
+import { getPreferredProvider } from './config/aiTaskDefaults.js'
 
 for (const v of ['JWT_SECRET', 'MONGO_URI', 'ES_HOST']) {
   if (!process.env[v]) throw new Error(`Missing required env var: ${v}`)
@@ -63,7 +64,7 @@ app.use('/api/ml',      authenticate, mlRoutes)
 app.use('/api/stats',   authenticate, statsRoutes)
 app.use('/api/edr',     authenticate, edrRoutes)
 app.use('/api/zabbix', authenticate, zabbixRoutes)
-app.get('/health', (req, res) => res.json({ status: 'ok', version: '1.0.0', ai: process.env.AI_PROVIDER || 'claude' }))
+app.get('/health', (req, res) => res.json({ status: 'ok', version: '1.0.0', ai: getPreferredProvider() }))
 app.use(errorHandler)
 
 async function start() {
@@ -77,9 +78,8 @@ async function start() {
   const PORT = process.env.PORT || 5000
   httpServer.listen(PORT, () => {
     console.log(`NetPulse server running on port ${PORT}`)
-    console.log(`AI provider: ${process.env.AI_PROVIDER || 'claude'}`)
+    console.log(`AI provider: ${getPreferredProvider()}`)
   })
 }
 
 start().catch(console.error)
-

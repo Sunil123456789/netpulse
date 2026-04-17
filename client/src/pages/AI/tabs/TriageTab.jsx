@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { aiAPI } from '../../../api/ai.js'
-import { ticketsAPI } from '../../../api/tickets.js'
+import { useRef, useState } from 'react'
 import { useAuthStore } from '../../../store/authStore'
 import { canUseCapability } from '../../../config/access'
 import { C, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
-import { formatTimestamp, getProviderOverrideModels, getReadyProviders } from '../utils/common.js'
+import { formatTimestamp } from '../utils/common.js'
+import { useTriageFlow } from '../hooks/useTriageFlow.js'
 
 const TRIG_SEV_COLOR = { critical: '#f5534f', high: '#f5a623', medium: '#4f7ef5', low: '#22d3a0' }
 const TRIG_SEV_BG = { critical: 'rgba(245,83,79,0.12)', high: 'rgba(245,166,35,0.12)', medium: 'rgba(79,126,245,0.12)', low: 'rgba(34,211,160,0.12)' }
@@ -99,92 +98,36 @@ const BLANK_FORM = {
 
 export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
   const user = useAuthStore(s => s.user)
-  const [triageResult, setTriageResult] = useState(null)
-  const [triageHistory, setTriageHistory] = useState([])
-  const [triageLoading, setTriageLoading] = useState(false)
-  const [triageProvider, setTriageProvider] = useState(null)
-  const [triageModel, setTriageModel] = useState(null)
-  const [alertForm, setAlertForm] = useState(BLANK_FORM)
-  const [starRated, setStarRated] = useState(false)
   const [hoveredStar, setHoveredStar] = useState(null)
-  const [ticketCreating, setTicketCreating] = useState(false)
-  const [ticketCreated, setTicketCreated] = useState(null)
   const resultRef = useRef(null)
-
-  useEffect(() => {
-    aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => {})
-  }, [])
-
-  const availableProviders = getReadyProviders(providerStatus)
-  const overrideModels = getProviderOverrideModels(triageProvider, providerStatus, ollamaStatus)
   const canCreateTickets = canUseCapability('createTickets', user)
-
-  const setField = (k, v) => setAlertForm(f => ({ ...f, [k]: v }))
-
-  async function runTriage() {
-    if (!alertForm.name.trim()) {
-      addToast('Alert name is required', 'error')
-      return
-    }
-    setTriageLoading(true)
-    setTriageResult(null)
-    setStarRated(false)
-    setTicketCreated(null)
-    try {
-      const { data } = await aiAPI.triage(
-        alertForm,
-        triageProvider || undefined,
-        triageModel || undefined,
-      )
-      setTriageResult(data)
-      aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => {})
-      addToast('Triage complete', 'success')
-      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
-    } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
-    } finally {
-      setTriageLoading(false)
-    }
-  }
-
-  async function rateResponse(star) {
-    if (!triageResult?.scoreId || starRated) return
-    try {
-      await aiAPI.rateResponse(triageResult.scoreId, star)
-      setStarRated(true)
-      addToast('Rating saved', 'success')
-    } catch {}
-  }
-
-  async function createTicket() {
-    if (!triageResult || !canCreateTickets) return
-    setTicketCreating(true)
-    try {
-      const sev = (triageResult.severity || alertForm.severity || 'high').toLowerCase()
-      const { data } = await ticketsAPI.create({
-        title: `[AI Triage] ${alertForm.name}`,
-        description: [
-          `**AI Triage Summary:** ${triageResult.summary || ''}`,
-          `**Recommendation:** ${triageResult.recommendation || ''}`,
-          `**Category:** ${triageResult.category || ''}`,
-          `**Source IP:** ${alertForm.srcip}  →  **Dest IP:** ${alertForm.dstip}`,
-          `**Attack:** ${alertForm.attack}`,
-          `**Site:** ${alertForm.site_name}  |  **Device:** ${alertForm.device_name}`,
-          triageResult.mitreTactic ? `**MITRE Tactic:** ${triageResult.mitreTactic}` : '',
-          triageResult.relatedCVE ? `**CVE:** ${triageResult.relatedCVE}` : '',
-        ].filter(Boolean).join('\n'),
-        severity: sev,
-        source: 'ai_triage',
-        tags: ['ai-triage', triageResult.category || 'security'].filter(Boolean),
-      })
-      setTicketCreated(data._id || data.id || data.ticketId || 'created')
-      addToast('Ticket created successfully', 'success')
-    } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
-    } finally {
-      setTicketCreating(false)
-    }
-  }
+  const {
+    triageResult,
+    triageHistory,
+    triageLoading,
+    triageProvider,
+    setTriageProvider,
+    triageModel,
+    setTriageModel,
+    alertForm,
+    setField,
+    starRated,
+    ticketCreating,
+    ticketCreated,
+    availableProviders,
+    overrideModels,
+    resetForm,
+    loadSampleAlert,
+    runTriage,
+    rateResponse,
+    createTicket,
+  } = useTriageFlow({
+    providerStatus,
+    ollamaStatus,
+    addToast,
+    canCreateTickets,
+    blankForm: BLANK_FORM,
+  })
 
   function sevColor(s) { return TRIG_SEV_COLOR[(s || '').toLowerCase()] || C.text3 }
   function sevBg(s) { return TRIG_SEV_BG[(s || '').toLowerCase()] || 'transparent' }
@@ -203,6 +146,13 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
     boxSizing: 'border-box',
   }
   const labelSx = { fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', marginBottom: 3, display: 'block' }
+
+  async function handleRunTriage() {
+    const completed = await runTriage()
+    if (completed) {
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -237,12 +187,7 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
         <div style={{ flex: 1 }} />
 
         <button
-          onClick={() => {
-            setAlertForm(BLANK_FORM)
-            setTriageResult(null)
-            setStarRated(false)
-            setTicketCreated(null)
-          }}
+          onClick={resetForm}
           style={{ fontSize: 10, padding: '4px 12px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg4)', color: C.text3, cursor: 'pointer', fontFamily: 'var(--mono)' }}
         >
           Clear Form
@@ -256,12 +201,7 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
             {Object.keys(SAMPLE_ALERTS).map(name => (
               <button
                 key={name}
-                onClick={() => {
-                  setAlertForm(SAMPLE_ALERTS[name])
-                  setTriageResult(null)
-                  setStarRated(false)
-                  setTicketCreated(null)
-                }}
+                onClick={() => loadSampleAlert(SAMPLE_ALERTS[name])}
                 style={{
                   fontSize: 10,
                   padding: '4px 10px',
@@ -344,7 +284,7 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
 
         <div style={{ padding: '14px' }}>
           <button
-            onClick={runTriage}
+            onClick={handleRunTriage}
             disabled={triageLoading}
             style={{
               width: '100%',

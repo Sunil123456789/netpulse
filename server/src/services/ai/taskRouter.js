@@ -29,6 +29,16 @@ class TaskRouter {
       'invalid x-api-key',
       'incorrect api key',
       '401',
+      'fetch failed',
+      'network',
+      'connection',
+      'econnrefused',
+      'econnreset',
+      'enotfound',
+      'etimedout',
+      'timed out',
+      'timeout',
+      'socket hang up',
     ].some(token => message.includes(token))
   }
 

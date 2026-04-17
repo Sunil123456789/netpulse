@@ -1,6 +1,6 @@
 # NetPulse — Post-Audit Roadmap
 
-> This roadmap now tracks the live production baseline and the implementation plan that follows the 2026-04-15 full-stack audit.
+> This roadmap tracks the live production baseline, the completed hardening work, and the next restructuring/performance plan.
 
 ---
 
@@ -9,7 +9,17 @@
 - AI module is live in production.
 - Production deployment is stabilized around host nginx + `docker-compose.prod.yml`.
 - Public `/health`, smoke testing, backup automation, and a production runbook are in place.
-- The platform is now in an “operations and hardening” phase, not an initial build phase.
+- Phase 1 reliability hardening is complete.
+- Phase 2 frontend capability cleanup is in progress locally.
+- The platform is now in an “operations, hardening, and refactoring” phase, not an initial build phase.
+
+### Read This First
+
+For full AI/developer handoff context, read:
+
+1. `.project/ai-context-map.md`
+2. `.project/audit-report.md`
+3. `.project/roadmap.md`
 
 ---
 
@@ -61,6 +71,23 @@
 
 ---
 
+## Next Plan
+
+### Immediate plan
+
+1. Commit the local Phase 2 frontend capability cleanup batch.
+2. Continue page-level role/capability cleanup so actions match real permissions.
+3. Start structural refactoring of the largest frontend files, beginning with `AIPage.jsx`.
+4. After the refactor is stable, add route-level lazy loading and vendor chunk splitting to reduce the large Vite bundle.
+
+### Why this is the right next move
+
+- Reliability and production safety are now materially better than they were before the audit.
+- The biggest near-term maintenance risk is no longer “broken production deploy”; it is oversized files, mixed concerns, and inconsistent UI capability logic.
+- `AIPage.jsx` is already large enough that future feature work will get slower and riskier unless it is broken into smaller, clearer pieces.
+
+---
+
 ## Post-Audit Priorities
 
 ## Phase 1 — Reliability + Production Safety
@@ -77,6 +104,10 @@ Close the highest-risk live issues before adding new product scope.
 - Add a minimum automated test suite for auth, stats, AI config, and one AI end-to-end flow
 - Add simple production alerting for `/health`, restart loops, scheduler failures, and repeated AI/API `5xx`
 
+### Status
+
+Completed and pushed.
+
 ## Phase 2 — Security + Correctness
 
 ### Objective
@@ -88,6 +119,22 @@ Align permissions, contracts, and persistence with the now-live operational surf
 - Add indexes for AI history/config collections
 - Standardize backend error contracts and degraded-mode responses
 - Tighten validation around admin/config mutation flows
+
+### Status
+
+In progress.
+
+Already underway locally:
+
+- shared frontend route/nav/title access model
+- ticket capability cleanup on Home and AI Triage
+- AI Settings tab restricted by capability
+
+Next inside Phase 2:
+
+- continue screen-level action cleanup on remaining pages
+- align any backend contracts that still assume route presence equals permission
+- review capability model against real user roles after UI cleanup is committed
 
 ## Phase 3 — Performance + Scalability
 
@@ -103,6 +150,22 @@ Reduce latency from synchronous fan-out and prepare the app for heavier producti
 - Document and own Elasticsearch templates and ILM outside ad hoc runtime behavior
 - Move long AI flows toward streaming or async job patterns
 
+### Status
+
+Planned next after the current frontend cleanup is committed.
+
+### Practical execution order
+
+1. Route-level lazy loading in `client/src/App.jsx`
+2. Vite `manualChunks` in `client/vite.config.js`
+3. Split `client/src/pages/AI/AIPage.jsx` into:
+   - page shell
+   - tab components
+   - feature hooks
+   - shared AI UI pieces
+4. Apply the same cleanup pattern to `SOC` and `NOC`
+5. Measure and reduce synchronous backend fan-out behind `stats` and AI context building
+
 ## Phase 4 — Product UX + Observability
 
 ### Objective
@@ -115,6 +178,41 @@ Finish the parts of the product that are visible but not yet mature, and improve
 - Improve cancel/retry behavior for long AI actions
 - Add dashboards for scheduler runs, provider fallback, and dependency health
 - Remove dead scaffold code and legacy placeholder helpers
+
+---
+
+## Refactor Track
+
+This is a focused maintainability track that sits between Phase 2 and Phase 3.
+
+### Goal
+
+Make the codebase smaller per file, easier to navigate, and safer for future AI/developer work.
+
+### First target
+
+`client/src/pages/AI/AIPage.jsx`
+
+### Refactor rules
+
+- move one feature slice at a time
+- keep runtime behavior unchanged while restructuring
+- preserve existing production workflows
+- verify `client/npm run build` after each slice
+
+### Suggested module shape
+
+- `client/src/pages/AI/AIPage.jsx` -> shell only
+- `client/src/pages/AI/tabs/*`
+- `client/src/pages/AI/components/*`
+- `client/src/pages/AI/hooks/*`
+- `client/src/pages/AI/utils/*`
+
+This same pattern can later apply to:
+
+- `SOC`
+- `NOC`
+- `Admin`
 
 ---
 
@@ -145,11 +243,11 @@ Finish the parts of the product that are visible but not yet mature, and improve
 
 ## Success Markers For The Next Milestone
 
-- Admin-only data mutation is enforced on the backend.
-- Socket.io live feed requires auth and scopes event delivery correctly.
-- Tickets and Reports are either hidden or implemented enough to justify production visibility.
-- A minimum automated test suite protects auth, stats, and AI core flows.
-- Dashboard and AI latency is measured and reduced from the current synchronous fan-out model.
+- The local Phase 2 frontend capability cleanup is committed and deployed safely.
+- `AIPage.jsx` has a defined restructuring plan and the first extraction slice is complete.
+- Route-level lazy loading is introduced without breaking auth or production routing.
+- Bundle-size warning is reduced materially from the current single large main chunk.
+- Dashboard and AI latency work is ready to move from audit recommendation into measured implementation.
 
 ---
 
@@ -163,3 +261,4 @@ Finish the parts of the product that are visible but not yet mature, and improve
 - Configurable AI timeout added to the AI Settings UI
 - Release tag created: `v1.0.0-ai-prod`
 - Full reliability-first audit completed and converted into this phased roadmap
+- AI/developer handoff memory added in `.project/ai-context-map.md`
