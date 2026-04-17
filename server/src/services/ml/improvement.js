@@ -2,6 +2,7 @@ import AIMLImprovement from '../../models/AIMLImprovement.js'
 import AIAnomaly from '../../models/AIAnomaly.js'
 import AIBaseline from '../../models/AIBaseline.js'
 import { taskRouter } from '../ai/taskRouter.js'
+import { buildImprovementDisplay, buildMetering } from '../ai/presentation.js'
 
 const IMPROVEMENT_SYSTEM_PROMPT = `You are an ML optimization expert
 for network security monitoring systems.
@@ -161,8 +162,12 @@ time-of-day considerations.`
     suggestion,
     provider: aiResult.provider,
     model: aiResult.model,
+    tokensUsed: aiResult.tokensUsed,
+    responseTimeMs: aiResult.responseTimeMs,
     status: 'pending',
-    createdAt: saved.createdAt
+    createdAt: saved.createdAt,
+    display: buildImprovementDisplay({ mlModel, suggestion }),
+    metering: buildMetering(aiResult),
   }
 }
 

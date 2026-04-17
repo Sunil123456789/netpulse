@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { aiAPI } from '../../../api/ai.js'
+import { useEffect, useRef, useState } from 'react'
+import { aiAPI, describeAIRequestError } from '../../../api/ai.js'
 import { ticketsAPI } from '../../../api/tickets.js'
 import { getProviderOverrideModels, getReadyProviders } from '../utils/common.js'
 
@@ -13,9 +13,15 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
   const [starRated, setStarRated] = useState(false)
   const [ticketCreating, setTicketCreating] = useState(false)
   const [ticketCreated, setTicketCreated] = useState(null)
+  const [triageError, setTriageError] = useState(null)
+  const abortRef = useRef(null)
 
   useEffect(() => {
     aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => null)
+  }, [])
+
+  useEffect(() => () => {
+    abortRef.current?.abort()
   }, [])
 
   const availableProviders = getReadyProviders(providerStatus)
@@ -49,23 +55,36 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
     setTriageResult(null)
     setStarRated(false)
     setTicketCreated(null)
+    setTriageError(null)
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const { data } = await aiAPI.triage(
         alertForm,
         triageProvider || undefined,
         triageModel || undefined,
+        { signal: controller.signal },
       )
       setTriageResult(data)
       aiAPI.getTriageHistory().then(r => setTriageHistory(r.data || [])).catch(() => null)
       addToast('Triage complete', 'success')
       return true
     } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
+      const error = describeAIRequestError(err, 'Triage failed')
+      if (error.kind !== 'canceled') {
+        setTriageError(error)
+        addToast(error.message, 'error')
+      }
       return false
     } finally {
+      abortRef.current = null
       setTriageLoading(false)
     }
+  }
+
+  function cancelTriage() {
+    abortRef.current?.abort()
   }
 
   async function rateResponse(star) {
@@ -122,11 +141,14 @@ export function useTriageFlow({ providerStatus, ollamaStatus, addToast, canCreat
     starRated,
     ticketCreating,
     ticketCreated,
+    triageError,
     availableProviders,
     overrideModels,
     resetForm,
     loadSampleAlert,
     runTriage,
+    cancelTriage,
+    retryTriage: runTriage,
     rateResponse,
     createTicket,
   }

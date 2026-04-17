@@ -2,6 +2,7 @@ import { useState } from 'react'
 import RangePicker from '../../../components/ui/RangePicker.jsx'
 import { C, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
 import { formatCoveredRange, formatTimestamp } from '../utils/common.js'
 import { useBriefData } from '../hooks/useBriefData.js'
 
@@ -161,6 +162,8 @@ export default function BriefTab({ providerStatus, ollamaStatus, range, setRange
     setBriefProvider,
     briefModel,
     setBriefModel,
+    briefError,
+    briefStartedAt,
     selectedBrief,
     setSelectedBrief,
     genStep,
@@ -170,6 +173,8 @@ export default function BriefTab({ providerStatus, ollamaStatus, range, setRange
     availableProviders,
     overrideModels,
     generateBrief,
+    cancelBriefGeneration,
+    retryBriefGeneration,
     refreshBrief,
     loadHistoryBrief,
     rateResponse,
@@ -300,49 +305,16 @@ export default function BriefTab({ providerStatus, ollamaStatus, range, setRange
         </div>
       </div>
 
-      {/* ── 2. GENERATION PROGRESS ───────────────────────────────── */}
-      {briefLoading && (
-        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '20px 24px' }}>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: C.text2, marginBottom: 16, fontWeight: 600 }}>
-            Generating Intelligence Brief — this may take 30–60 seconds
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {GEN_STEPS.map((step, i) => {
-              const done    = i < genStep
-              const current = i === genStep
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700,
-                    background: done ? `${C.green}22` : current ? `${C.accent2}22` : 'var(--bg4)',
-                    border: `2px solid ${done ? C.green : current ? C.accent2 : 'var(--border)'}`,
-                    color: done ? C.green : current ? C.accent2 : C.text3,
-                    transition: 'all 0.4s',
-                  }}>
-                    {done ? '✓' : i + 1}
-                  </div>
-                  <span style={{
-                    fontSize: 11, fontFamily: 'var(--mono)',
-                    color: done ? C.green : current ? C.text : C.text3,
-                    transition: 'color 0.4s',
-                  }}>
-                    {step}
-                    {current && (
-                      <span style={{ display: 'inline-flex', gap: 3, marginLeft: 8 }}>
-                        {[0, 1, 2].map(d => (
-                          <span key={d} style={{ width: 5, height: 5, borderRadius: '50%', background: C.accent2, display: 'inline-block', animation: `bounce 1.2s ${d * 0.2}s infinite` }} />
-                        ))}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      <TaskShell
+        title="Brief generation"
+        loading={briefLoading}
+        error={briefError}
+        steps={GEN_STEPS}
+        stageLabel={GEN_STEPS[genStep] || GEN_STEPS[0]}
+        startedAt={briefStartedAt}
+        onRetry={retryBriefGeneration}
+        onCancel={cancelBriefGeneration}
+      />
 
       {/* ── 3. BRIEF DISPLAY ─────────────────────────────────────── */}
       {!briefLoading && !displayed && (
@@ -396,49 +368,21 @@ export default function BriefTab({ providerStatus, ollamaStatus, range, setRange
                 </div>
                 {/* meta row */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4, borderTop: '1px solid var(--border)' }}>
-                  {briefView.provider && <ProviderBadge provider={briefView.provider} />}
-                  {briefView.model && (
-                    <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: 5 }}>
-                      {briefView.model}
-                    </span>
-                  )}
-                  {(briefView.tokensUsed ?? briefView.tokens) != null && (
-                    <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
-                      {(briefView.tokensUsed ?? briefView.tokens)} tokens used
-                    </span>
-                  )}
-                  {(briefView.generationTimeMs ?? briefView.responseTimeMs) != null && (
-                    <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
-                      {((briefView.generationTimeMs ?? briefView.responseTimeMs) / 1000).toFixed(1)}s
-                    </span>
-                  )}
-                  {briefView.totalScore != null && (
-                    <span style={{
-                      fontSize: 10, padding: '2px 9px', borderRadius: 10, fontFamily: 'var(--mono)', fontWeight: 600,
-                      background: briefView.totalScore >= 7 ? 'rgba(34,211,160,0.12)' : 'rgba(245,166,35,0.12)',
-                      color: briefView.totalScore >= 7 ? C.green : C.amber,
-                      border: `1px solid ${briefView.totalScore >= 7 ? 'rgba(34,211,160,0.3)' : 'rgba(245,166,35,0.3)'}`,
-                    }}>
-                      Score: {briefView.totalScore}/10
-                    </span>
-                  )}
+                  <MeteringRow
+                    metering={briefView.metering}
+                    provider={briefView.provider}
+                    model={briefView.model}
+                    responseTimeMs={briefView.generationTimeMs ?? briefView.responseTimeMs}
+                    tokensUsed={briefView.tokensUsed ?? briefView.tokens}
+                    totalScore={briefView.totalScore}
+                  />
                 </div>
               </div>
             </Card>
 
             {/* executive summary */}
             {briefView.executiveSummary && (
-              <div style={{
-                background: 'var(--bg3)', border: '1px solid var(--border)',
-                borderLeft: `4px solid ${C.accent2}`,
-                borderRadius: 8, padding: '16px 18px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <span style={{ fontSize: 16 }}>📋</span>
-                  <span style={{ fontSize: 11, color: C.text2, fontFamily: 'var(--mono)', fontWeight: 700, letterSpacing: 0.5 }}>EXECUTIVE SUMMARY</span>
-                </div>
-                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.8 }}>{briefView.executiveSummary}</div>
-              </div>
+              <StructuredResponse display={briefView.display} fallbackText={briefView.executiveSummary} />
             )}
 
             {/* three section cards */}

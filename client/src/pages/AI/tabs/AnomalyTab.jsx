@@ -1,6 +1,8 @@
 import { Fragment, useState } from 'react'
 import { C, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
+import { useTaskProgress } from '../hooks/useTaskProgress.js'
 import { formatMetricName, formatTimestamp } from '../utils/common.js'
 import { useAnomalyData } from '../hooks/useAnomalyData.js'
 
@@ -15,6 +17,12 @@ const ML_MODEL_OPTIONS = [
   { value: 'port_scan', label: 'Port Scan' },
   { value: 'brute_force', label: 'Brute Force' },
   { value: 'mac_flap', label: 'MAC Flap' },
+]
+
+const IMPROVEMENT_STEPS = [
+  'Reviewing model performance...',
+  'Generating improvement suggestions...',
+  'Formatting advisor output...',
 ]
 
 function ProgressBar({ pct }) {
@@ -44,6 +52,7 @@ export default function AnomalyTab({ providerStatus, ollamaStatus, range, addToa
     improvementStats,
     improvementHistory,
     improvementLoading,
+    improvementError,
     improvementProvider,
     setImprovementProvider,
     improvementModel,
@@ -56,6 +65,8 @@ export default function AnomalyTab({ providerStatus, ollamaStatus, range, addToa
     runScheduled,
     saveFeedback,
     requestImprovement,
+    cancelImprovementRequest,
+    retryImprovementRequest,
     applySuggestion,
     rejectSuggestion,
   } = useAnomalyData({
@@ -64,6 +75,7 @@ export default function AnomalyTab({ providerStatus, ollamaStatus, range, addToa
     ollamaStatus,
     addToast,
   })
+  const { stageLabel, startedAt } = useTaskProgress(improvementLoading, IMPROVEMENT_STEPS, 3200)
 
   /* ── sensitivity options ───────────────────────────────────────── */
   const SENS_OPTS = [
@@ -457,6 +469,17 @@ export default function AnomalyTab({ providerStatus, ollamaStatus, range, addToa
             </button>
           </div>
 
+          <TaskShell
+            title="Improvement advisor"
+            loading={improvementLoading}
+            error={improvementError}
+            steps={IMPROVEMENT_STEPS}
+            stageLabel={stageLabel}
+            startedAt={startedAt}
+            onRetry={retryImprovementRequest}
+            onCancel={cancelImprovementRequest}
+          />
+
           {improvementStats && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
               {[
@@ -489,39 +512,17 @@ export default function AnomalyTab({ providerStatus, ollamaStatus, range, addToa
                   {latestImprovement.status || 'pending'}
                 </span>
                 {latestImprovement.provider && <ProviderBadge provider={latestImprovement.provider} />}
-                {latestImprovement.model && (
-                  <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: 5 }}>
-                    {latestImprovement.model}
-                  </span>
-                )}
               </div>
 
-              {latestImprovement.suggestion?.analysis && (
-                <div>
-                  <div style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Analysis</div>
-                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.7 }}>{latestImprovement.suggestion.analysis}</div>
-                </div>
-              )}
+              <MeteringRow
+                metering={latestImprovement.metering}
+                provider={latestImprovement.provider}
+                model={latestImprovement.model}
+                responseTimeMs={latestImprovement.responseTimeMs}
+                tokensUsed={latestImprovement.tokensUsed}
+              />
 
-              {(latestImprovement.suggestion?.suggestedChanges || latestImprovement.suggestedChanges || []).length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Suggested Changes</div>
-                  {(latestImprovement.suggestion?.suggestedChanges || latestImprovement.suggestedChanges || []).map((chg, i) => (
-                    <div key={i} style={{ background: 'var(--bg4)', border: '1px solid var(--border)', borderRadius: 7, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 11, color: C.text, fontFamily: 'var(--mono)', fontWeight: 700, marginBottom: 4 }}>
-                        {chg.field || 'setting'}: {chg.oldValue ?? '—'} → {chg.newValue ?? '—'}
-                      </div>
-                      <div style={{ fontSize: 11, color: C.text2, lineHeight: 1.6 }}>{chg.reason || 'No reason provided'}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {latestImprovement.suggestion?.expectedImprovement && (
-                <div style={{ fontSize: 11, color: C.green, lineHeight: 1.6, fontFamily: 'var(--mono)' }}>
-                  Expected: {latestImprovement.suggestion.expectedImprovement}
-                </div>
-              )}
+              <StructuredResponse display={latestImprovement.display} fallbackText={latestImprovement.suggestion?.analysis} />
 
               {(latestImprovement.status || 'pending') === 'pending' && latestImprovement.id && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

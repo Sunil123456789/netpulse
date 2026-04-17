@@ -4,6 +4,7 @@ import { getESClient } from '../../config/elasticsearch.js'
 import { zabbix } from '../zabbix.js'
 import Ticket from '../../models/Ticket.js'
 import Device from '../../models/Device.js'
+import { buildMetering, buildSearchDisplay } from './presentation.js'
 
 // Predefined valid query templates
 const TEMPLATES = {
@@ -294,7 +295,20 @@ async function processNLSearch({
     totalHits,
     executionTimeMs,
     totalScore: scoring.totalScore,
-    scoreId: scoring.scoreId
+    scoreId: scoring.scoreId,
+    display: buildSearchDisplay({
+      matchedTemplate: key,
+      templateDescription: template.description,
+      totalHits,
+      source: template.source,
+      results,
+    }),
+    metering: buildMetering({
+      provider: 'template',
+      model: 'keyword-match',
+      tokensUsed: 0,
+      responseTimeMs: executionTimeMs,
+    }),
   }
 }
 

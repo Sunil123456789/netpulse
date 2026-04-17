@@ -17,6 +17,7 @@ export function ProviderBadge({ provider }) {
     claude: { label: 'Claude', color: C.accent2 },
     openai: { label: 'OpenAI', color: C.green },
     ollama: { label: 'Ollama', color: C.amber },
+    template: { label: 'Template', color: C.cyan },
   }
   const p = map[provider] || { label: provider || 'Unknown', color: C.text3 }
 

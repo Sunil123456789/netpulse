@@ -1,4 +1,5 @@
 import AIScore from '../../models/AIScore.js'
+import { estimateCostUsd } from './presentation.js'
 
 // Score response speed based on response time
 function scoreSpeed(responseTimeMs) {
@@ -178,16 +179,13 @@ async function getProviderStats() {
     { $sort: { totalRuns: -1 } },
   ])
 
-  // Cost per 1K tokens (approximate)
-  const costPer1K = { claude: 0.003, openai: 0.005, ollama: 0 }
-
   return results.map(r => ({
     provider:          r._id,
     totalTokens:       r.totalTokens,
     totalRuns:         r.totalRuns,
     avgScore:          Math.round(r.avgScore * 10) / 10,
     avgResponseTimeMs: Math.round(r.avgResponseTime),
-    estimatedCost:     ((r.totalTokens / 1000) * (costPer1K[r._id] || 0)).toFixed(4),
+    estimatedCost:     estimateCostUsd(r._id, r.totalTokens),
   }))
 }
 

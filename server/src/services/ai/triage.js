@@ -1,5 +1,6 @@
 import { taskRouter } from './taskRouter.js'
 import { scoreResponse } from './scorer.js'
+import { buildMetering, buildTriageDisplay } from './presentation.js'
 
 const TRIAGE_SYSTEM_PROMPT = `You are a senior SOC analyst for
 Lenskart's network security team. You analyze security alerts and
@@ -154,7 +155,9 @@ IP Reputation Check:
     scores: scoring.scores,
     totalScore: scoring.totalScore,
     scoreId: scoring.scoreId,
-    triageAt: new Date().toISOString()
+    triageAt: new Date().toISOString(),
+    display: buildTriageDisplay({ ...triageResult, ipReputation }, aiResult.content),
+    metering: buildMetering(aiResult),
   }
 }
 

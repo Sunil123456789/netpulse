@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { aiAPI } from '../../../api/ai.js'
 import { C, CTX_OPTIONS, selSx } from '../constants'
 import { ProviderBadge } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
 import { useChatSession } from '../hooks/useChatSession.js'
 
 const CHAT_SUGGESTIONS = [
@@ -13,7 +14,7 @@ const CHAT_SUGGESTIONS = [
   'Any brute force attempts?',
 ]
 
-function ChatBubble({ msg, onCopy }) {
+function ChatBubble({ msg, onCopy, onRetry, onCancel }) {
   const isUser = msg.role === 'user'
   const [rated, setRated] = useState(false)
   const [hoveredStar, setHoveredStar] = useState(null)
@@ -70,54 +71,63 @@ function ChatBubble({ msg, onCopy }) {
             {isUser ? 'You' : 'NetPulse AI'}
           </span>
           {!isUser && msg.provider && <ProviderBadge provider={msg.provider} />}
-          {!isUser && msg.model && (
-            <span style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', background: 'var(--bg4)', padding: '1px 6px', borderRadius: 4 }}>
-              {msg.model}
-            </span>
-          )}
-          {!isUser && msg.responseTimeMs && (
-            <span style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)' }}>
-              {(msg.responseTimeMs / 1000).toFixed(1)}s
-            </span>
-          )}
-          {!isUser && msg.totalScore != null && (
-            <span
-              style={{
-                fontSize: 9,
-                padding: '1px 7px',
-                borderRadius: 10,
-                fontFamily: 'var(--mono)',
-                fontWeight: 600,
-                background: msg.totalScore >= 7 ? 'rgba(34,211,160,0.15)' : msg.totalScore >= 5 ? 'rgba(245,166,35,0.15)' : 'rgba(245,83,79,0.15)',
-                color: msg.totalScore >= 7 ? C.green : msg.totalScore >= 5 ? C.amber : C.red,
-                border: `1px solid ${msg.totalScore >= 7 ? 'rgba(34,211,160,0.3)' : msg.totalScore >= 5 ? 'rgba(245,166,35,0.3)' : 'rgba(245,83,79,0.3)'}`,
-              }}
-            >
-              {msg.totalScore}/10
-            </span>
-          )}
           <span style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', marginLeft: 'auto' }}>
             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          {!isUser && (
+          {!isUser && !msg.pending && msg.status !== 'canceled' && msg.content && (
             <button onClick={() => onCopy(msg.content)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.text3, padding: 0, lineHeight: 1 }} title="Copy">
               ⧉
             </button>
           )}
         </div>
 
-        <div
-          style={{
-            fontSize: 12,
-            color: msg.isError ? C.red : C.text,
-            lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontFamily: isUser ? 'var(--mono)' : 'inherit',
-          }}
-        >
-          {msg.content}
-        </div>
+        {isUser ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: C.text,
+              lineHeight: 1.6,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'var(--mono)',
+            }}
+          >
+            {msg.content}
+          </div>
+        ) : msg.pending ? (
+          <TaskShell
+            title={msg.provider ? `Streaming from ${msg.provider}` : 'Generating response'}
+            loading
+            steps={['Preparing request...', 'Collecting network context...', 'Running model...', 'Formatting response...']}
+            stageLabel={msg.stageLabel}
+            startedAt={msg.startedAt}
+            onCancel={onCancel}
+            compact
+          />
+        ) : msg.isError ? (
+          <TaskShell
+            title="Response failed"
+            error={msg.error || { kind: 'generic', message: msg.content || 'Response failed' }}
+            onRetry={onRetry}
+            compact
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <MeteringRow
+              metering={msg.metering}
+              provider={msg.provider}
+              model={msg.model}
+              responseTimeMs={msg.responseTimeMs}
+              totalScore={msg.totalScore}
+            />
+            <StructuredResponse display={msg.display} fallbackText={msg.content} compact />
+            {msg.status === 'canceled' && (
+              <div style={{ fontSize: 10, color: C.amber, fontFamily: 'var(--mono)' }}>
+                Response canceled before completion
+              </div>
+            )}
+          </div>
+        )}
 
         {!isUser && msg.scoreId && (
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -156,35 +166,6 @@ function ChatBubble({ msg, onCopy }) {
   )
 }
 
-function TypingIndicator({ provider }) {
-  return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 14 }}>
-      <div style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, background: `${C.accent2}22`, border: `1px solid ${C.accent2}33` }}>
-        🤖
-      </div>
-      <div
-        style={{
-          background: 'var(--bg3)',
-          border: '1px solid var(--border)',
-          borderLeft: `3px solid ${C.accent2}`,
-          borderRadius: '4px 12px 12px 12px',
-          padding: '12px 16px',
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-        }}
-      >
-        {[0, 1, 2].map(i => (
-          <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: C.accent2, display: 'inline-block', animation: `bounce 1.2s ${i * 0.2}s infinite` }} />
-        ))}
-        <span style={{ fontSize: 11, color: C.text3, fontFamily: 'var(--mono)', marginLeft: 4 }}>
-          {provider ? `Asking ${provider}...` : 'Thinking...'}
-        </span>
-      </div>
-    </div>
-  )
-}
-
 export default function ChatTab({ providerStatus, ollamaStatus, range, addToast }) {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -193,6 +174,7 @@ export default function ChatTab({ providerStatus, ollamaStatus, range, addToast 
     input,
     setInput,
     loading,
+    socketReady,
     chatContext,
     setChatContext,
     chatProvider,
@@ -202,8 +184,9 @@ export default function ChatTab({ providerStatus, ollamaStatus, range, addToast 
     lastScore,
     availableProviders,
     overrideModels,
-    activeProvider,
     sendMessage,
+    retryLastMessage,
+    cancelActiveResponse,
     clearChat,
   } = useChatSession({
     range,
@@ -285,6 +268,10 @@ export default function ChatTab({ providerStatus, ollamaStatus, range, addToast 
 
         <div style={{ flex: 1 }} />
 
+        <span style={{ fontSize: 10, color: socketReady ? C.green : C.amber, fontFamily: 'var(--mono)', background: socketReady ? 'rgba(34,211,160,0.12)' : 'rgba(245,166,35,0.12)', border: `1px solid ${socketReady ? 'rgba(34,211,160,0.3)' : 'rgba(245,166,35,0.3)'}`, padding: '3px 10px', borderRadius: 20 }}>
+          {socketReady ? 'Streaming ready' : 'Buffered fallback'}
+        </span>
+
         {lastScore != null && (
           <span
             style={{
@@ -341,9 +328,14 @@ export default function ChatTab({ providerStatus, ollamaStatus, range, addToast 
         ) : (
           <div style={{ paddingBottom: 8 }}>
             {messages.map((m, i) => (
-              <ChatBubble key={i} msg={m} onCopy={copyText} />
+              <ChatBubble
+                key={m.id || i}
+                msg={m}
+                onCopy={copyText}
+                onRetry={retryLastMessage}
+                onCancel={cancelActiveResponse}
+              />
             ))}
-            {loading && <TypingIndicator provider={activeProvider} />}
             <div ref={bottomRef} />
           </div>
         )}
@@ -380,32 +372,30 @@ export default function ChatTab({ providerStatus, ollamaStatus, range, addToast 
             }}
           />
           <button
-            onClick={() => handleSendMessage(input)}
-            disabled={!input.trim() || loading}
+            onClick={() => (loading ? cancelActiveResponse() : handleSendMessage(input))}
+            disabled={!input.trim() && !loading}
             style={{
               padding: '10px 20px',
               borderRadius: 8,
               border: 'none',
               height: 44,
-              background: (!input.trim() || loading) ? 'var(--bg4)' : C.accent2,
-              color: (!input.trim() || loading) ? C.text3 : '#fff',
-              cursor: (!input.trim() || loading) ? 'not-allowed' : 'pointer',
+              background: (!input.trim() && !loading) ? 'var(--bg4)' : loading ? C.red : C.accent2,
+              color: (!input.trim() && !loading) ? C.text3 : '#fff',
+              cursor: (!input.trim() && !loading) ? 'not-allowed' : 'pointer',
               fontFamily: 'var(--mono)',
-              fontSize: 16,
+              fontSize: loading ? 12 : 16,
               fontWeight: 600,
               transition: 'all 0.15s',
               alignSelf: 'flex-end',
             }}
           >
-            {loading ? '…' : '➤'}
+            {loading ? 'Stop' : '➤'}
           </button>
         </div>
         <div style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', marginTop: 6 }}>
           Enter to send · Shift+Enter for newline · {messages.filter(m => m.role === 'assistant').length} AI responses
         </div>
       </div>
-
-      <style>{`@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }`}</style>
     </div>
   )
 }

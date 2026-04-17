@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { aiAPI } from '../../../api/ai.js'
+import { aiAPI, describeAIRequestError } from '../../../api/ai.js'
 import { buildDateRange, getProviderOverrideModels, getReadyProviders } from '../utils/common.js'
 
 export function useBriefData({ range, providerStatus, ollamaStatus, addToast, generationSteps }) {
@@ -11,7 +11,10 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
   const [selectedBrief, setSelectedBrief] = useState(null)
   const [genStep, setGenStep] = useState(0)
   const [starRated, setStarRated] = useState(false)
+  const [briefError, setBriefError] = useState(null)
+  const [briefStartedAt, setBriefStartedAt] = useState(null)
   const stepTimerRef = useRef(null)
+  const abortRef = useRef(null)
 
   const displayed = selectedBrief || brief
   const availableProviders = getReadyProviders(providerStatus)
@@ -27,14 +30,20 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
     aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => null)
   }, [])
 
+  useEffect(() => () => {
+    abortRef.current?.abort()
+  }, [])
+
   useEffect(() => {
     if (briefLoading) {
+      setBriefStartedAt(Date.now())
       setGenStep(0)
       stepTimerRef.current = setInterval(() => {
         setGenStep(step => (step < generationSteps.length - 1 ? step + 1 : step))
       }, 5000)
     } else {
       clearInterval(stepTimerRef.current)
+      setBriefStartedAt(null)
     }
 
     return () => clearInterval(stepTimerRef.current)
@@ -44,20 +53,33 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
     setBriefLoading(true)
     setSelectedBrief(null)
     setStarRated(false)
+    setBriefError(null)
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       const { data } = await aiAPI.generateBrief(
         buildDateRange(range),
         briefProvider || undefined,
         briefModel || undefined,
+        { signal: controller.signal },
       )
       setBrief(normalizeBriefPayload(data))
       aiAPI.getBriefHistory().then(r => setBriefHistory(r.data || [])).catch(() => null)
       addToast('Brief generated successfully', 'success')
     } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
+      const error = describeAIRequestError(err, 'Brief generation failed')
+      if (error.kind !== 'canceled') {
+        setBriefError(error)
+        addToast(error.message, 'error')
+      }
     } finally {
+      abortRef.current = null
       setBriefLoading(false)
     }
+  }
+
+  function cancelBriefGeneration() {
+    abortRef.current?.abort()
   }
 
   async function refreshBrief() {
@@ -111,6 +133,8 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
     setBriefProvider,
     briefModel,
     setBriefModel,
+    briefError,
+    briefStartedAt,
     selectedBrief,
     setSelectedBrief,
     genStep,
@@ -120,6 +144,8 @@ export function useBriefData({ range, providerStatus, ollamaStatus, addToast, ge
     availableProviders,
     overrideModels,
     generateBrief,
+    cancelBriefGeneration,
+    retryBriefGeneration: generateBrief,
     refreshBrief,
     loadHistoryBrief,
     rateResponse,

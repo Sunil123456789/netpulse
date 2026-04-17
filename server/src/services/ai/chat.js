@@ -1,6 +1,7 @@
 import { taskRouter } from './taskRouter.js'
 import { buildContext } from './context.js'
 import { scoreResponse } from './scorer.js'
+import { buildChatDisplay, buildMetering } from './presentation.js'
 
 const SYSTEM_PROMPT = `You are NetPulse AI, an intelligent network
 and security operations assistant for Lenskart's IT infrastructure.
@@ -32,41 +33,32 @@ Guidelines:
 - If you don't have enough data, say so clearly
 - Never make up data — only use what is provided in context`
 
-async function processChat({
-  messages,
-  context = 'all',
-  dateRange = null,
-  overrideProvider = null,
-  overrideModel = null,
-}) {
-  // Build context from appropriate sources
-  const sources = context === 'soc'    ? ['es']
-    : context === 'noc'                ? ['es']
-    : context === 'zabbix'             ? ['zabbix']
-    : ['es', 'zabbix', 'mongo']  // 'all' and everything else
+function getSources(context) {
+  return context === 'soc' ? ['es']
+    : context === 'noc' ? ['es']
+      : context === 'zabbix' ? ['zabbix']
+        : ['es', 'zabbix', 'mongo']
+}
 
+async function buildChatContext(context, dateRange) {
+  const sources = getSources(context)
   const contextData = await buildContext(sources, dateRange)
 
-  // Build system prompt with current context
-  const systemWithContext = `${SYSTEM_PROMPT}
+  return {
+    contextData,
+    systemWithContext: `${SYSTEM_PROMPT}
 
 CURRENT NETWORK CONTEXT:
 ${contextData.text}
 
 Instructions: Use the above context to answer questions accurately.
-Always reference specific numbers from the context when relevant.`
+Always reference specific numbers from the context when relevant.`,
+  }
+}
 
-  // Route to correct AI provider
-  const result = await taskRouter.route(
-    'chat',
-    messages,
-    systemWithContext,
-    overrideProvider,
-    overrideModel
-  )
-
-  // Score the response
+async function finalizeChatResult({ messages, contextData, result }) {
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()
+
   const scoring = await scoreResponse({
     task:          'chat',
     provider:      result.provider,
@@ -78,7 +70,6 @@ Always reference specific numbers from the context when relevant.`
     save:          true,
   })
 
-  // Update last run in task config
   await taskRouter.updateLastRun('chat', 'success', result.responseTimeMs)
 
   return {
@@ -91,7 +82,56 @@ Always reference specific numbers from the context when relevant.`
     totalScore:     scoring.totalScore,
     scoreId:        scoring.scoreId,
     contextSources: contextData.sources,
+    display:        buildChatDisplay(result.content),
+    metering:       buildMetering(result),
   }
 }
 
-export { processChat }
+async function processChat({
+  messages,
+  context = 'all',
+  dateRange = null,
+  overrideProvider = null,
+  overrideModel = null,
+}) {
+  const { contextData, systemWithContext } = await buildChatContext(context, dateRange)
+  const result = await taskRouter.route(
+    'chat',
+    messages,
+    systemWithContext,
+    overrideProvider,
+    overrideModel
+  )
+
+  return await finalizeChatResult({ messages, contextData, result })
+}
+
+async function streamChat({
+  messages,
+  context = 'all',
+  dateRange = null,
+  overrideProvider = null,
+  overrideModel = null,
+  signal = null,
+  onStage = null,
+  onToken = null,
+}) {
+  onStage?.('collecting_context', 'Collecting network context...')
+  const { contextData, systemWithContext } = await buildChatContext(context, dateRange)
+
+  onStage?.('running_model', 'Running model...')
+  const result = await taskRouter.routeStream(
+    'chat',
+    messages,
+    systemWithContext,
+    overrideProvider,
+    overrideModel,
+    { onStage, onToken },
+    signal
+  )
+
+  onStage?.('formatting_response', 'Formatting response...')
+  return await finalizeChatResult({ messages, contextData, result })
+}
+
+export { processChat, streamChat }

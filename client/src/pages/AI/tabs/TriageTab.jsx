@@ -2,7 +2,9 @@ import { useRef, useState } from 'react'
 import { useAuthStore } from '../../../store/authStore'
 import { canUseCapability } from '../../../config/access'
 import { C, selSx } from '../constants'
-import { Card, ProviderBadge } from '../components/Common.jsx'
+import { Card } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
+import { useTaskProgress } from '../hooks/useTaskProgress.js'
 import { formatTimestamp } from '../utils/common.js'
 import { useTriageFlow } from '../hooks/useTriageFlow.js'
 
@@ -96,6 +98,12 @@ const BLANK_FORM = {
   message: '',
 }
 
+const TRIAGE_STEPS = [
+  'Preparing the alert context...',
+  'Running triage with the selected model...',
+  'Formatting the assessment...',
+]
+
 export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
   const user = useAuthStore(s => s.user)
   const [hoveredStar, setHoveredStar] = useState(null)
@@ -114,11 +122,14 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
     starRated,
     ticketCreating,
     ticketCreated,
+    triageError,
     availableProviders,
     overrideModels,
     resetForm,
     loadSampleAlert,
     runTriage,
+    cancelTriage,
+    retryTriage,
     rateResponse,
     createTicket,
   } = useTriageFlow({
@@ -128,6 +139,7 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
     canCreateTickets,
     blankForm: BLANK_FORM,
   })
+  const { stageLabel, startedAt } = useTaskProgress(triageLoading, TRIAGE_STEPS, 3200)
 
   function sevColor(s) { return TRIG_SEV_COLOR[(s || '').toLowerCase()] || C.text3 }
   function sevBg(s) { return TRIG_SEV_BG[(s || '').toLowerCase()] || 'transparent' }
@@ -306,6 +318,17 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
         </div>
       </Card>
 
+      <TaskShell
+        title="Triage task"
+        loading={triageLoading}
+        error={triageError}
+        steps={TRIAGE_STEPS}
+        stageLabel={stageLabel}
+        startedAt={startedAt}
+        onRetry={retryTriage}
+        onCancel={cancelTriage}
+      />
+
       {triageResult && (
         <div ref={resultRef}>
           <Card title="TRIAGE ASSESSMENT" noPad>
@@ -350,31 +373,7 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
             </div>
 
             <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {triageResult.summary && (
-                <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '12px 14px', borderLeft: `4px solid ${sevColor(triageResult.severity || 'medium')}` }}>
-                  <div style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 5 }}>Summary</div>
-                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'inherit' }}>{triageResult.summary}</div>
-                </div>
-              )}
-
-              {triageResult.recommendation && (
-                <div style={{ background: 'rgba(34,211,160,0.07)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(34,211,160,0.25)', borderLeft: `4px solid ${C.green}` }}>
-                  <div style={{ fontSize: 9, color: C.green, fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 5 }}>Recommendation</div>
-                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'inherit' }}>{triageResult.recommendation}</div>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
-                {[
-                  triageResult.mitreTactic && ['MITRE Tactic', triageResult.mitreTactic, C.cyan],
-                  triageResult.relatedCVE && ['Related CVE', triageResult.relatedCVE, C.red],
-                ].filter(Boolean).map(([label, value, color]) => (
-                  <div key={label} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 12px', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
-                    <div style={{ fontSize: 11, color: color || C.text, fontFamily: 'var(--mono)', fontWeight: 600 }}>{value}</div>
-                  </div>
-                ))}
-              </div>
+              <StructuredResponse display={triageResult.display} fallbackText={triageResult.reasoning || triageResult.summary} />
 
               {triageResult.ipReputation && (
                 <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--border)' }}>
@@ -396,22 +395,13 @@ export default function TriageTab({ providerStatus, ollamaStatus, addToast }) {
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
-                {triageResult.provider && <ProviderBadge provider={triageResult.provider} />}
-                {triageResult.model && (
-                  <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: 5 }}>
-                    {triageResult.model}
-                  </span>
-                )}
-                {triageResult.responseTimeMs && (
-                  <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
-                    {(triageResult.responseTimeMs / 1000).toFixed(1)}s
-                  </span>
-                )}
-                {triageResult.totalScore != null && (
-                  <span style={{ fontSize: 10, padding: '2px 9px', borderRadius: 10, fontFamily: 'var(--mono)', fontWeight: 600, background: triageResult.totalScore >= 7 ? 'rgba(34,211,160,0.12)' : 'rgba(245,166,35,0.12)', color: triageResult.totalScore >= 7 ? C.green : C.amber, border: `1px solid ${triageResult.totalScore >= 7 ? 'rgba(34,211,160,0.3)' : 'rgba(245,166,35,0.3)'}` }}>
-                    Score: {triageResult.totalScore}/10
-                  </span>
-                )}
+                <MeteringRow
+                  metering={triageResult.metering}
+                  provider={triageResult.provider}
+                  model={triageResult.model}
+                  responseTimeMs={triageResult.responseTimeMs}
+                  totalScore={triageResult.totalScore}
+                />
 
                 {triageResult.scoreId && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>

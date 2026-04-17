@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { C, CTX_OPTIONS, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
+import { useTaskProgress } from '../hooks/useTaskProgress.js'
 import { formatTimestamp } from '../utils/common.js'
 import { useModelLabComparison } from '../hooks/useModelLabComparison.js'
 
@@ -11,12 +13,13 @@ const MODEL_LAB_SUGGESTIONS = [
   'Give me an executive summary of the last 24 hours',
 ]
 
-function ModelLabResponseCard({ result, isWinner, rated, hoveredStar, setHoveredStar, onRate }) {
-  const score = result?.totalScore
-  const scoreBg = score >= 7 ? 'rgba(34,211,160,0.12)' : score >= 5 ? 'rgba(245,166,35,0.12)' : 'rgba(245,83,79,0.12)'
-  const scoreColor = score >= 7 ? C.green : score >= 5 ? C.amber : C.red
-  const scoreBorder = score >= 7 ? 'rgba(34,211,160,0.3)' : score >= 5 ? 'rgba(245,166,35,0.3)' : 'rgba(245,83,79,0.3)'
+const MODEL_LAB_STEPS = [
+  'Preparing the shared context...',
+  'Running each target model...',
+  'Scoring and comparing responses...',
+]
 
+function ModelLabResponseCard({ result, isWinner, rated, hoveredStar, setHoveredStar, onRate }) {
   return (
     <div
       style={{
@@ -45,38 +48,16 @@ function ModelLabResponseCard({ result, isWinner, rated, hoveredStar, setHovered
           <div style={{ fontSize: 12, color: C.red, lineHeight: 1.7 }}>{result.error}</div>
         ) : (
           <>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              {result.responseTimeMs != null && (
-                <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
-                  {(result.responseTimeMs / 1000).toFixed(1)}s
-                </span>
-              )}
-              {result.tokensUsed != null && (
-                <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
-                  {result.tokensUsed} tokens
-                </span>
-              )}
-              {score != null && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    padding: '2px 9px',
-                    borderRadius: 10,
-                    fontFamily: 'var(--mono)',
-                    fontWeight: 600,
-                    background: scoreBg,
-                    color: scoreColor,
-                    border: `1px solid ${scoreBorder}`,
-                  }}
-                >
-                  Score: {score}/10
-                </span>
-              )}
-            </div>
+            <MeteringRow
+              metering={result.metering}
+              provider={result.provider}
+              model={result.model}
+              responseTimeMs={result.responseTimeMs}
+              tokensUsed={result.tokensUsed}
+              totalScore={result.totalScore}
+            />
 
-            <div style={{ fontSize: 12, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {result.response || '(no response)'}
-            </div>
+            <StructuredResponse display={result.display} fallbackText={result.response || '(no response)'} />
 
             {result.scoreId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -128,11 +109,23 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
     comparisonResult,
     comparisonHistory,
     ratedScores,
+    modelLabError,
     modelOverrides,
     setModelOverrides,
     providerModels,
     isReady,
+    compareMode,
+    setCompareMode,
+    sameProvider,
+    setSameProvider,
+    sameProviderSelections,
+    setSameProviderModelAt,
+    sameProviderOptions,
+    selectedSameProviderModels,
+    canRunComparison,
     runComparison,
+    cancelComparison,
+    retryComparison,
     rateComparison,
   } = useModelLabComparison({
     range,
@@ -140,6 +133,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
     ollamaStatus,
     addToast,
   })
+  const { stageLabel, startedAt } = useTaskProgress(modelLabLoading, MODEL_LAB_STEPS, 3200)
 
   async function handleRunComparison(text = question) {
     const ran = await runComparison(text)
@@ -155,6 +149,29 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
       <Card title="MODEL LAB CONTROLS" noPad>
         <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>Mode:</span>
+            {[
+              { value: 'providers', label: 'Across Providers' },
+              { value: 'same-provider', label: 'Within One Provider' },
+            ].map(option => (
+              <button
+                key={option.value}
+                onClick={() => setCompareMode(option.value)}
+                style={{
+                  fontSize: 10,
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: `1px solid ${compareMode === option.value ? C.accent2 : 'var(--border)'}`,
+                  background: compareMode === option.value ? 'rgba(124,92,252,0.18)' : 'var(--bg4)',
+                  color: compareMode === option.value ? C.text : C.text3,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--mono)',
+                  fontWeight: compareMode === option.value ? 700 : 500,
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
             <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>Context:</span>
             <select value={labContext} onChange={e => setLabContext(e.target.value)} style={selSx}>
               {CTX_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -165,31 +182,78 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
             </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            {[
-              ['claude', providerModels.claude],
-              ['openai', providerModels.openai],
-              ['ollama', providerModels.ollama],
-            ].map(([provider, models]) => (
-              <div key={provider} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', opacity: isReady(provider) ? 1 : 0.55 }}>
+          {compareMode === 'providers' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              {[
+                ['claude', providerModels.claude],
+                ['openai', providerModels.openai],
+                ['ollama', providerModels.ollama],
+              ].map(([provider, models]) => (
+                <div key={provider} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', opacity: isReady(provider) ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <ProviderBadge provider={provider} />
+                    <span className={`badge badge-${isReady(provider) ? 'green' : 'red'}`} style={{ marginLeft: 'auto' }}>
+                      {isReady(provider) ? 'Ready' : 'Unavailable'}
+                    </span>
+                  </div>
+                  <select
+                    value={modelOverrides[provider]}
+                    onChange={e => setModelOverrides(prev => ({ ...prev, [provider]: e.target.value }))}
+                    style={{ ...selSx, width: '100%' }}
+                    disabled={!isReady(provider)}
+                  >
+                    <option value="auto">auto</option>
+                    {(models || []).map(model => <option key={model} value={model}>{model}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+              <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', opacity: isReady(sameProvider) ? 1 : 0.55 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <ProviderBadge provider={provider} />
-                  <span className={`badge badge-${isReady(provider) ? 'green' : 'red'}`} style={{ marginLeft: 'auto' }}>
-                    {isReady(provider) ? 'Ready' : 'Unavailable'}
+                  <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>Provider</span>
+                  <span className={`badge badge-${isReady(sameProvider) ? 'green' : 'red'}`} style={{ marginLeft: 'auto' }}>
+                    {isReady(sameProvider) ? 'Ready' : 'Unavailable'}
                   </span>
                 </div>
                 <select
-                  value={modelOverrides[provider]}
-                  onChange={e => setModelOverrides(prev => ({ ...prev, [provider]: e.target.value }))}
+                  value={sameProvider}
+                  onChange={e => setSameProvider(e.target.value)}
                   style={{ ...selSx, width: '100%' }}
-                  disabled={!isReady(provider)}
                 >
-                  <option value="auto">auto</option>
-                  {(models || []).map(model => <option key={model} value={model}>{model}</option>)}
+                  {['claude', 'openai', 'ollama'].map(provider => (
+                    <option key={provider} value={provider}>{provider}</option>
+                  ))}
                 </select>
               </div>
-            ))}
-          </div>
+
+              {sameProviderSelections.map((selectedModel, index) => (
+                <div key={`${sameProvider}-slot-${index}`} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', opacity: isReady(sameProvider) ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
+                      Model {index + 1}{index === 2 ? ' (optional)' : ''}
+                    </span>
+                  </div>
+                  <select
+                    value={selectedModel}
+                    onChange={e => setSameProviderModelAt(index, e.target.value)}
+                    style={{ ...selSx, width: '100%' }}
+                    disabled={!isReady(sameProvider) || sameProviderOptions.length === 0}
+                  >
+                    <option value="">{index === 2 ? 'not used' : 'select model'}</option>
+                    {sameProviderOptions.map(model => <option key={model} value={model}>{model}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {compareMode === 'same-provider' && (
+            <div style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>
+              Compare 2-3 different models from the same provider. Selected: {selectedSameProviderModels.length}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
             <textarea
@@ -217,14 +281,14 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
             />
             <button
               onClick={() => handleRunComparison()}
-              disabled={!question.trim() || modelLabLoading}
+              disabled={!canRunComparison || modelLabLoading}
               style={{
                 minWidth: 150,
                 border: 'none',
                 borderRadius: 8,
-                background: (!question.trim() || modelLabLoading) ? 'var(--bg4)' : C.accent2,
-                color: (!question.trim() || modelLabLoading) ? C.text3 : '#fff',
-                cursor: (!question.trim() || modelLabLoading) ? 'not-allowed' : 'pointer',
+                background: (!canRunComparison || modelLabLoading) ? 'var(--bg4)' : C.accent2,
+                color: (!canRunComparison || modelLabLoading) ? C.text3 : '#fff',
+                cursor: (!canRunComparison || modelLabLoading) ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--mono)',
                 fontWeight: 700,
                 fontSize: 12,
@@ -259,6 +323,17 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
         </div>
       </Card>
 
+      <TaskShell
+        title="Model comparison"
+        loading={modelLabLoading}
+        error={modelLabError}
+        steps={MODEL_LAB_STEPS}
+        stageLabel={stageLabel}
+        startedAt={startedAt}
+        onRetry={retryComparison}
+        onCancel={cancelComparison}
+      />
+
       {comparisonResult ? (
         <>
           <Card title="COMPARISON SUMMARY" noPad>
@@ -267,7 +342,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
               <span style={{ fontSize: 12, color: C.text, lineHeight: 1.6 }}>{comparisonResult.question}</span>
               {comparisonResult.winner && (
                 <span style={{ marginLeft: 'auto', fontSize: 10, color: C.green, fontFamily: 'var(--mono)', fontWeight: 700 }}>
-                  Best score: {comparisonResult.winner.provider} ({comparisonResult.winner.totalScore}/10)
+                  Best score: {comparisonResult.winner.provider} / {comparisonResult.winner.model} ({comparisonResult.winner.totalScore}/10)
                 </span>
               )}
             </div>
@@ -276,9 +351,9 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
             {resultCards.map(result => (
               <ModelLabResponseCard
-                key={result.provider}
+                key={result.targetId || `${result.provider}:${result.model}`}
                 result={result}
-                isWinner={comparisonResult.winner?.provider === result.provider}
+                isWinner={comparisonResult.winner?.targetId === result.targetId}
                 rated={!!ratedScores[result.scoreId]}
                 hoveredStar={hoveredStars[result.scoreId] ?? null}
                 setHoveredStar={star => setHoveredStars(prev => ({ ...prev, [result.scoreId]: star }))}
@@ -290,7 +365,7 @@ export default function ModelLabTab({ providerStatus, ollamaStatus, range, addTo
       ) : (
         <Card title="MODEL LAB" noPad>
           <div style={{ padding: '28px 18px', textAlign: 'center', color: C.text3, fontFamily: 'var(--mono)', fontSize: 11 }}>
-            Run one prompt across Claude, OpenAI, and Ollama to compare quality, speed, and score side by side
+            Compare providers side by side, or test 2-3 different models from the same provider with one prompt
           </div>
         </Card>
       )}

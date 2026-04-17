@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { aiAPI } from '../../../api/ai.js'
+import { aiAPI, describeAIRequestError } from '../../../api/ai.js'
 import { C, selSx } from '../constants'
 import { Card, ProviderBadge } from '../components/Common.jsx'
+import { MeteringRow, StructuredResponse, TaskShell } from '../components/TaskSupport.jsx'
+import { useTaskProgress } from '../hooks/useTaskProgress.js'
 import { buildDateRange, formatTimestamp, getProviderOverrideModels, getReadyProviders } from '../utils/common.js'
 
 const SEARCH_SOURCES = [
@@ -18,6 +20,12 @@ const SEARCH_SUGGESTIONS = [
   'Open tickets right now',
   'Any MAC flapping events?',
   'Top source countries in firewall logs',
+]
+
+const SEARCH_STEPS = [
+  'Choosing the best query template...',
+  'Collecting operational data...',
+  'Formatting the search response...',
 ]
 
 function SearchResultsView({ results }) {
@@ -80,9 +88,16 @@ export default function SearchTab({ providerStatus, ollamaStatus, range, addToas
   const [starRated, setStarRated] = useState(false)
   const [hoveredStar, setHoveredStar] = useState(null)
   const inputRef = useRef(null)
+  const abortRef = useRef(null)
+  const [searchError, setSearchError] = useState(null)
+  const { stageLabel, startedAt } = useTaskProgress(searchLoading, SEARCH_STEPS, 2800)
 
   useEffect(() => {
     aiAPI.getSearchHistory().then(r => setSearchHistory(r.data || [])).catch(() => {})
+  }, [])
+
+  useEffect(() => () => {
+    abortRef.current?.abort()
   }, [])
 
   const availableProviders = getReadyProviders(providerStatus)
@@ -94,6 +109,10 @@ export default function SearchTab({ providerStatus, ollamaStatus, range, addToas
 
     setSearchLoading(true)
     setStarRated(false)
+    setSearchError(null)
+    setQuery(question)
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       const { data } = await aiAPI.search(
         question,
@@ -101,17 +120,27 @@ export default function SearchTab({ providerStatus, ollamaStatus, range, addToas
         buildDateRange(range),
         searchProvider || undefined,
         searchModel || undefined,
+        { signal: controller.signal },
       )
       setQuery(question)
       setSearchResult(data)
       aiAPI.getSearchHistory().then(r => setSearchHistory(r.data || [])).catch(() => {})
       addToast('Search complete', 'success')
     } catch (err) {
-      addToast(err.response?.data?.error || err.message, 'error')
+      const error = describeAIRequestError(err, 'Search failed')
+      if (error.kind !== 'canceled') {
+        setSearchError(error)
+        addToast(error.message, 'error')
+      }
     } finally {
+      abortRef.current = null
       setSearchLoading(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
+  }
+
+  function cancelSearch() {
+    abortRef.current?.abort()
   }
 
   async function rateResponse(star) {
@@ -207,6 +236,17 @@ export default function SearchTab({ providerStatus, ollamaStatus, range, addToas
         </div>
       </Card>
 
+      <TaskShell
+        title="Search task"
+        loading={searchLoading}
+        error={searchError}
+        steps={SEARCH_STEPS}
+        stageLabel={stageLabel}
+        startedAt={startedAt}
+        onRetry={() => runSearch(query)}
+        onCancel={cancelSearch}
+      />
+
       {searchResult ? (
         <Card title="SEARCH RESULTS" noPad>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -217,24 +257,23 @@ export default function SearchTab({ providerStatus, ollamaStatus, range, addToas
             <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>{searchResult.templateDescription}</span>
             <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>Source: {searchResult.source}</span>
             <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>{searchResult.totalHits} hit{searchResult.totalHits === 1 ? '' : 's'}</span>
-            <span style={{ fontSize: 10, color: C.text3, fontFamily: 'var(--mono)' }}>{(searchResult.executionTimeMs / 1000).toFixed(2)}s</span>
             {searchResult.provider && <ProviderBadge provider={searchResult.provider} />}
-            {searchResult.totalScore != null && (
-              <span style={{
-                fontSize: 10, padding: '2px 9px', borderRadius: 10, fontFamily: 'var(--mono)', fontWeight: 600,
-                background: searchResult.totalScore >= 7 ? 'rgba(34,211,160,0.12)' : 'rgba(245,166,35,0.12)',
-                color: searchResult.totalScore >= 7 ? C.green : C.amber,
-                border: `1px solid ${searchResult.totalScore >= 7 ? 'rgba(34,211,160,0.3)' : 'rgba(245,166,35,0.3)'}`,
-              }}>
-                Score: {searchResult.totalScore}/10
-              </span>
-            )}
           </div>
           <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px' }}>
               <div style={{ fontSize: 9, color: C.text3, fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Question</div>
               <div style={{ fontSize: 13, color: C.text, lineHeight: 1.7 }}>{searchResult.question}</div>
             </div>
+
+            <MeteringRow
+              metering={searchResult.metering}
+              provider={searchResult.provider}
+              model={searchResult.model}
+              responseTimeMs={searchResult.executionTimeMs}
+              totalScore={searchResult.totalScore}
+            />
+
+            <StructuredResponse display={searchResult.display} fallbackText={searchResult.templateDescription} />
 
             <SearchResultsView results={searchResult.results} />
 

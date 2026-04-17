@@ -10,14 +10,41 @@ export const C = {
   text3: '#555a72',
 }
 
-export const TABS = [
-  { id: 'chat', label: 'Chat', icon: '💬' },
-  { id: 'anomaly', label: 'Anomaly', icon: '📈' },
-  { id: 'triage', label: 'Triage', icon: '🎯' },
-  { id: 'brief', label: 'Brief', icon: '📋' },
-  { id: 'search', label: 'Search', icon: '🔍' },
-  { id: 'modellab', label: 'Model Lab', icon: '🧪' },
-  { id: 'settings', label: 'Settings', icon: '⚙️', capability: 'manageAISettings' },
+export const SECTION_STORAGE_KEY = 'netpulse.aiWorkspace.section'
+export const TAB_STORAGE_KEY = 'netpulse.aiWorkspace.tabs'
+
+export const TAB_SECTIONS = [
+  {
+    id: 'ai',
+    label: 'AI',
+    icon: '🤖',
+    defaultTab: 'chat',
+    tabs: [
+      { id: 'chat', label: 'Chat', icon: '💬' },
+      { id: 'triage', label: 'Triage', icon: '🎯' },
+    ],
+  },
+  {
+    id: 'ml',
+    label: 'ML',
+    icon: '📈',
+    defaultTab: 'anomaly',
+    tabs: [
+      { id: 'anomaly', label: 'Anomaly', icon: '📈' },
+      { id: 'search', label: 'Search', icon: '🔍' },
+      { id: 'brief', label: 'Brief', icon: '📋' },
+      { id: 'modellab', label: 'Model Lab', icon: '🧪' },
+    ],
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: '⚙️',
+    defaultTab: 'settings',
+    tabs: [
+      { id: 'settings', label: 'Settings', icon: '⚙️', capability: 'manageAISettings' },
+    ],
+  },
 ]
 
 export const PROVIDER_MODELS = {
