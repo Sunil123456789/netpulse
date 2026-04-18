@@ -5,6 +5,11 @@ import { zabbix } from '../zabbix.js'
 import Ticket from '../../models/Ticket.js'
 import Device from '../../models/Device.js'
 import { buildMetering, buildSearchDisplay } from './presentation.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from './executionTracking.js'
 
 // Predefined valid query templates
 const TEMPLATES = {
@@ -236,7 +241,8 @@ async function processNLSearch({
   source = 'auto',
   dateRange = null,
   overrideProvider = null,
-  overrideModel = null
+  overrideModel = null,
+  trigger = 'http',
 }) {
   void source
   void overrideProvider
@@ -244,71 +250,107 @@ async function processNLSearch({
   const startTime = Date.now()
   const from = dateRange?.from || 'now-24h'
   const to = dateRange?.to || 'now'
-
-  // Find best matching template
-  const { key, template } = findBestTemplate(question)
-
-  let results = []
-  let totalHits = 0
-
-  if (template.source === 'elasticsearch') {
-    const es = getESClient()
-    const query = template.buildQuery(from, to)
-    const esResult = await es.search({ index: template.index, body: query })
-    results = template.formatResults(esResult)
-    totalHits = esResult.hits?.total?.value ||
-      (Array.isArray(results) ? results.length : Object.keys(results).length)
-
-  } else if (template.source === 'zabbix') {
-    results = await template.execute()
-    totalHits = results.length
-
-  } else if (template.source === 'mongodb') {
-    results = await template.execute()
-    totalHits = results.length
-  }
-
-  const executionTimeMs = Date.now() - startTime
-
-  // Score as fast local operation
-  const scoring = await scoreResponse({
-    task: 'search',
-    provider: 'template',
-    model: 'keyword-match',
-    query: question,
-    response: JSON.stringify(results).slice(0, 500),
-    responseTimeMs: executionTimeMs,
-    tokensUsed: 0,
-    save: true
+  const execution = await startExecutionLog({
+    taskKey: 'ai.search',
+    domain: 'ai',
+    trigger,
+    requestLabel: question,
   })
 
-  await taskRouter.updateLastRun('search', 'success', executionTimeMs)
+  try {
+    // Find best matching template
+    const { key, template } = findBestTemplate(question)
 
-  return {
-    question,
-    matchedTemplate: key,
-    templateDescription: template.description,
-    provider: 'template',
-    model: 'keyword-match',
-    source: template.source,
-    results: Array.isArray(results) ? results : [results],
-    totalHits,
-    executionTimeMs,
-    totalScore: scoring.totalScore,
-    scoreId: scoring.scoreId,
-    display: buildSearchDisplay({
-      matchedTemplate: key,
-      templateDescription: template.description,
-      totalHits,
-      source: template.source,
-      results,
-    }),
-    metering: buildMetering({
+    let results = []
+    let totalHits = 0
+
+    if (template.source === 'elasticsearch') {
+      const es = getESClient()
+      const query = template.buildQuery(from, to)
+      const esResult = await es.search({ index: template.index, body: query })
+      results = template.formatResults(esResult)
+      totalHits = esResult.hits?.total?.value ||
+        (Array.isArray(results) ? results.length : Object.keys(results).length)
+
+    } else if (template.source === 'zabbix') {
+      results = await template.execute()
+      totalHits = results.length
+
+    } else if (template.source === 'mongodb') {
+      results = await template.execute()
+      totalHits = results.length
+    }
+
+    const executionTimeMs = Date.now() - startTime
+
+    // Score as fast local operation
+    const scoring = await scoreResponse({
+      task: 'search',
       provider: 'template',
       model: 'keyword-match',
+      query: question,
+      response: JSON.stringify(results).slice(0, 500),
+      responseTimeMs: executionTimeMs,
+      tokensUsed: 0,
+      save: true
+    })
+
+    await taskRouter.updateLastRun('search', 'success', executionTimeMs)
+
+    const meteringResult = {
+      provider: 'template',
+      model: 'keyword-match',
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
       tokensUsed: 0,
       responseTimeMs: executionTimeMs,
-    }),
+      billingMode: 'internal',
+    }
+
+    const payload = {
+      question,
+      matchedTemplate: key,
+      templateDescription: template.description,
+      provider: 'template',
+      model: 'keyword-match',
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      tokensUsed: 0,
+      source: template.source,
+      results: Array.isArray(results) ? results : [results],
+      totalHits,
+      executionTimeMs,
+      totalScore: scoring.totalScore,
+      scoreId: scoring.scoreId,
+      display: buildSearchDisplay({
+        matchedTemplate: key,
+        templateDescription: template.description,
+        totalHits,
+        source: template.source,
+        results,
+      }),
+      metering: buildMetering(meteringResult),
+    }
+
+    await completeExecutionLog(execution._id, {
+      result: meteringResult,
+      durationMs: executionTimeMs,
+      scoreId: scoring.scoreId,
+    })
+
+    return payload
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+      result: {
+        provider: 'template',
+        model: 'keyword-match',
+        billingMode: 'internal',
+      },
+    })
+    throw err
   }
 }
 

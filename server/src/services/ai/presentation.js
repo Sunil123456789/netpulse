@@ -274,22 +274,59 @@ function getProviderPricePer1K(provider = '') {
   return PROVIDER_PRICING_PER_1K[provider] || 0
 }
 
-function estimateCostUsd(provider, tokensUsed = 0) {
-  return roundCost((Number(tokensUsed || 0) / 1000) * getProviderPricePer1K(provider))
+function normalizeTokenUsage({
+  promptTokens = 0,
+  completionTokens = 0,
+  totalTokens = null,
+  tokensUsed = null,
+} = {}) {
+  const prompt = Number(promptTokens || 0)
+  const completion = Number(completionTokens || 0)
+  const total = Number(
+    totalTokens != null
+      ? totalTokens
+      : tokensUsed != null
+        ? tokensUsed
+        : (prompt + completion)
+  ) || 0
+
+  return {
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens: total,
+    tokensUsed: total,
+  }
+}
+
+function estimateCostUsd(provider, totalTokens = 0) {
+  return roundCost((Number(totalTokens || 0) / 1000) * getProviderPricePer1K(provider))
 }
 
 function buildMetering({
   provider,
   model,
+  promptTokens = 0,
+  completionTokens = 0,
+  totalTokens = null,
   tokensUsed = 0,
   responseTimeMs = 0,
 }) {
+  const usage = normalizeTokenUsage({
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    tokensUsed,
+  })
+
   return {
     provider,
     model,
-    tokensUsed: Number(tokensUsed || 0),
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+    tokensUsed: usage.tokensUsed,
     responseTimeMs: Number(responseTimeMs || 0),
-    estimatedCostUsd: estimateCostUsd(provider, tokensUsed),
+    estimatedCostUsd: estimateCostUsd(provider, usage.totalTokens),
     billingMode: getProviderBillingMode(provider),
   }
 }
@@ -305,5 +342,6 @@ export {
   estimateCostUsd,
   getProviderBillingMode,
   getProviderPricePer1K,
+  normalizeTokenUsage,
   normalizeDisplayPayload,
 }

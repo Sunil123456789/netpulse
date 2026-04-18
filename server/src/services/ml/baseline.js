@@ -1,5 +1,10 @@
 import { getESClient } from '../../config/elasticsearch.js'
 import AIBaseline from '../../models/AIBaseline.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from '../ai/executionTracking.js'
 
 const METRICS = [
   {
@@ -163,26 +168,95 @@ async function buildMetricBaseline(metric, daysBack = 7) {
 }
 
 // Build baselines for ALL metrics
-async function buildAllBaselines(daysBack = 7) {
-  const results = []
-  for (const metric of METRICS) {
-    try {
-      const result = await buildMetricBaseline(metric, daysBack)
-      results.push({ ...result, status: 'success' })
-      console.log(`Baseline built: ${metric.name} - ${result.slotsBuilt} slots`)
-    } catch (err) {
-      results.push({ metric: metric.name, status: 'failed', error: err.message })
-      console.error(`Baseline failed: ${metric.name}:`, err.message)
+async function buildAllBaselines(daysBack = 7, { trigger = 'http' } = {}) {
+  const startTime = Date.now()
+  const execution = await startExecutionLog({
+    taskKey: 'ml.baseline.build',
+    domain: 'ml',
+    trigger,
+    requestLabel: 'all metrics',
+  })
+
+  try {
+    const results = []
+    for (const metric of METRICS) {
+      try {
+        const result = await buildMetricBaseline(metric, daysBack)
+        results.push({ ...result, status: 'success' })
+        console.log(`Baseline built: ${metric.name} - ${result.slotsBuilt} slots`)
+      } catch (err) {
+        results.push({ metric: metric.name, status: 'failed', error: err.message })
+        console.error(`Baseline failed: ${metric.name}:`, err.message)
+      }
     }
+
+    await completeExecutionLog(execution._id, {
+      result: {
+        provider: null,
+        model: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        billingMode: 'internal',
+        responseTimeMs: Date.now() - startTime,
+      },
+      durationMs: Date.now() - startTime,
+    })
+
+    return results
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+      result: {
+        provider: null,
+        model: null,
+        billingMode: 'internal',
+      },
+    })
+    throw err
   }
-  return results
 }
 
 // Build baseline for specific metric
-async function buildBaseline(metricName, daysBack = 7) {
-  const metric = METRICS.find(m => m.name === metricName)
-  if (!metric) throw new Error(`Unknown metric: ${metricName}`)
-  return buildMetricBaseline(metric, daysBack)
+async function buildBaseline(metricName, daysBack = 7, { trigger = 'http' } = {}) {
+  const startTime = Date.now()
+  const execution = await startExecutionLog({
+    taskKey: 'ml.baseline.build',
+    domain: 'ml',
+    trigger,
+    requestLabel: metricName,
+  })
+
+  try {
+    const metric = METRICS.find(m => m.name === metricName)
+    if (!metric) throw new Error(`Unknown metric: ${metricName}`)
+    const result = await buildMetricBaseline(metric, daysBack)
+
+    await completeExecutionLog(execution._id, {
+      result: {
+        provider: null,
+        model: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        billingMode: 'internal',
+        responseTimeMs: Date.now() - startTime,
+      },
+      durationMs: Date.now() - startTime,
+    })
+
+    return result
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+      result: {
+        provider: null,
+        model: null,
+        billingMode: 'internal',
+      },
+    })
+    throw err
+  }
 }
 
 // Get current value for a metric (last 1 hour)

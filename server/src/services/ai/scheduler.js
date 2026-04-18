@@ -25,7 +25,7 @@ class AIScheduler {
   }
 
   // Run a specific task
-  async runTask(task) {
+  async runTask(task, { trigger = 'scheduled' } = {}) {
     if (this.running[task]) {
       console.log(`Scheduler: ${task} already running, skipping`)
       return
@@ -39,20 +39,22 @@ class AIScheduler {
       switch (task) {
         case 'anomaly':
           await detectAnomalies({
-            triggeredBy: 'schedule',
+            triggeredBy: 'scheduled',
             sensitivity: 2.0,
-            sources: ['firewall', 'cisco', 'sentinel']
+            sources: ['firewall', 'cisco', 'sentinel'],
+            trigger,
           })
           break
 
         case 'brief':
           await generateBrief({
-            triggeredBy: 'schedule'
+            triggeredBy: 'scheduled',
+            trigger,
           })
           break
 
         case 'baseline_update':
-          await buildAllBaselines(7)
+          await buildAllBaselines(7, { trigger })
           break
 
         default:
@@ -104,7 +106,7 @@ class AIScheduler {
     console.log(`Scheduler: Starting auto-run for ${task} every ${config.schedule}`)
 
     this.intervals[task] = setInterval(() => {
-      this.runTask(task).catch(err =>
+      this.runTask(task, { trigger: 'scheduled' }).catch(err =>
         console.error(`Scheduler interval error for ${task}:`, err.message)
       )
     }, intervalMs)
@@ -140,7 +142,7 @@ class AIScheduler {
       // (it's background ML learning, should always run)
       if (!this.intervals['baseline_update']) {
         this.intervals['baseline_update'] = setInterval(() => {
-          this.runTask('baseline_update').catch(err =>
+          this.runTask('baseline_update', { trigger: 'scheduled' }).catch(err =>
             console.error('Baseline update error:', err.message)
           )
         }, 6 * 60 * 60 * 1000) // every 6 hours

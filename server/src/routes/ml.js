@@ -23,8 +23,51 @@ import {
   getImprovementHistory,
   getMLPerformanceStats
 } from '../services/ml/improvement.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from '../services/ai/executionTracking.js'
+import { createRequestAbortSignal } from '../utils/requestAbort.js'
 
 const router = Router()
+
+async function withTrackedInternalOperation({ taskKey, requestLabel }, operation) {
+  const startTime = Date.now()
+  const execution = await startExecutionLog({
+    taskKey,
+    domain: 'ml',
+    trigger: 'http',
+    requestLabel,
+  })
+
+  try {
+    const result = await operation()
+    await completeExecutionLog(execution._id, {
+      result: {
+        provider: null,
+        model: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        billingMode: 'internal',
+        responseTimeMs: Date.now() - startTime,
+      },
+      durationMs: Date.now() - startTime,
+    })
+    return result
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+      result: {
+        provider: null,
+        model: null,
+        billingMode: 'internal',
+      },
+    })
+    throw err
+  }
+}
 
 // GET /api/ml/baseline/status
 router.get('/baseline/status', async (_req, res) => {
@@ -43,11 +86,11 @@ router.post('/baseline/build', async (req, res) => {
     const { metric, daysBack = 7 } = req.body
 
     if (metric) {
-      const result = await buildBaseline(metric, daysBack)
+      const result = await buildBaseline(metric, daysBack, { trigger: 'http' })
       res.json(result)
     } else {
       // Build all
-      const results = await buildAllBaselines(daysBack)
+      const results = await buildAllBaselines(daysBack, { trigger: 'http' })
       res.json({
         message: 'All baselines built',
         results,
@@ -83,7 +126,8 @@ router.post('/anomaly/detect', async (req, res) => {
       dateRange: dateRange || null,
       sensitivity: parseFloat(sensitivity),
       sources,
-      triggeredBy: 'manual'
+      triggeredBy: 'manual',
+      trigger: 'http',
     })
 
     res.json(result)
@@ -139,10 +183,13 @@ router.post('/anomaly/:id/feedback', async (req, res) => {
 router.post('/threats/port-scan', async (req, res) => {
   try {
     const { dateRange, portThreshold = 15 } = req.body
-    const result = await detectPortScans({
+    const result = await withTrackedInternalOperation({
+      taskKey: 'ml.threat.port-scan',
+      requestLabel: `port threshold ${portThreshold}`,
+    }, async () => await detectPortScans({
       dateRange,
       portThreshold: parseInt(portThreshold)
-    })
+    }))
     res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -153,10 +200,13 @@ router.post('/threats/port-scan', async (req, res) => {
 router.post('/threats/brute-force', async (req, res) => {
   try {
     const { dateRange, failureThreshold = 50 } = req.body
-    const result = await detectBruteForce({
+    const result = await withTrackedInternalOperation({
+      taskKey: 'ml.threat.brute-force',
+      requestLabel: `failure threshold ${failureThreshold}`,
+    }, async () => await detectBruteForce({
       dateRange,
       failureThreshold: parseInt(failureThreshold)
-    })
+    }))
     res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -167,10 +217,13 @@ router.post('/threats/brute-force', async (req, res) => {
 router.post('/threats/geo', async (req, res) => {
   try {
     const { dateRange, expectedCountries } = req.body
-    const result = await detectGeoAnomalies({
+    const result = await withTrackedInternalOperation({
+      taskKey: 'ml.threat.geo',
+      requestLabel: (expectedCountries || ['India', 'Reserved']).join(', '),
+    }, async () => await detectGeoAnomalies({
       dateRange,
       expectedCountries: expectedCountries || ['India', 'Reserved']
-    })
+    }))
     res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -182,18 +235,25 @@ router.post('/threats/geo', async (req, res) => {
 router.post('/threats/all', async (req, res) => {
   try {
     const { dateRange } = req.body
-    const [portScan, bruteForce, geo] = await Promise.allSettled([
-      detectPortScans({ dateRange }),
-      detectBruteForce({ dateRange }),
-      detectGeoAnomalies({ dateRange })
-    ])
+    const result = await withTrackedInternalOperation({
+      taskKey: 'ml.threat.all',
+      requestLabel: 'full threat sweep',
+    }, async () => {
+      const [portScan, bruteForce, geo] = await Promise.allSettled([
+        detectPortScans({ dateRange }),
+        detectBruteForce({ dateRange }),
+        detectGeoAnomalies({ dateRange })
+      ])
 
-    res.json({
-      portScan: portScan.status === 'fulfilled' ? portScan.value : { error: portScan.reason?.message },
-      bruteForce: bruteForce.status === 'fulfilled' ? bruteForce.value : { error: bruteForce.reason?.message },
-      geo: geo.status === 'fulfilled' ? geo.value : { error: geo.reason?.message },
-      runAt: new Date().toISOString()
+      return {
+        portScan: portScan.status === 'fulfilled' ? portScan.value : { error: portScan.reason?.message },
+        bruteForce: bruteForce.status === 'fulfilled' ? bruteForce.value : { error: bruteForce.reason?.message },
+        geo: geo.status === 'fulfilled' ? geo.value : { error: geo.reason?.message },
+        runAt: new Date().toISOString()
+      }
     })
+
+    res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -211,6 +271,7 @@ router.get('/improve/stats/:model', async (req, res) => {
 
 // POST /api/ml/improve/request
 router.post('/improve/request', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const {
       mlModel = 'baseline_anomaly',
@@ -221,11 +282,16 @@ router.post('/improve/request', async (req, res) => {
     const result = await requestMLImprovement({
       mlModel,
       overrideProvider,
-      overrideModel
+      overrideModel,
+      trigger: 'http',
+      signal,
     })
     res.json(result)
   } catch (err) {
+    if (signal.aborted) return
     res.status(500).json({ error: err.message })
+  } finally {
+    cleanup()
   }
 })
 

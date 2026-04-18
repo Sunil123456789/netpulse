@@ -71,11 +71,17 @@ export function useAITabs(user) {
     setTabsBySection(prev => ({ ...prev, [activeSection.id]: nextTab }))
   }
 
+  function setTabDirect(sectionId, tabId) {
+    setSectionState(sectionId)
+    setTabsBySection(prev => ({ ...prev, [sectionId]: tabId }))
+  }
+
   return {
     section,
     setSection,
     tab: activeTab?.id || null,
     setTab,
+    setTabDirect,
     visibleSections,
     visibleTabs,
     activeSection,

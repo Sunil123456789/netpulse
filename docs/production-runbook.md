@@ -161,3 +161,17 @@ OLLAMA_HOST=https://ollama.smile4u.in/ollama
 OLLAMA_MODEL=llama3
 CORS_ORIGIN=https://netpulse.smile4u.in
 ```
+
+If the Ollama endpoint is fronted by an authenticated gateway, also set one of these:
+
+```env
+OLLAMA_AUTH_TOKEN=your_token_here
+OLLAMA_AUTH_HEADER=Authorization
+OLLAMA_AUTH_SCHEME=Bearer
+```
+
+or:
+
+```env
+OLLAMA_EXTRA_HEADERS={"Authorization":"Bearer your_token_here"}
+```

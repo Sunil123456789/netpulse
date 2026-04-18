@@ -1,5 +1,7 @@
 import http from 'node:http'
 import https from 'node:https'
+import { normalizeTokenUsage } from '../presentation.js'
+import { normalizeTimeoutMs } from '../../../utils/providerTimeout.js'
 
 class OllamaProvider {
   constructor() {
@@ -7,7 +9,36 @@ class OllamaProvider {
     this.defaultModel = process.env.OLLAMA_MODEL || 'llama3'
     this.chatTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 180000)
     this.allowInsecureTls = String(process.env.OLLAMA_INSECURE_TLS || '').trim().toLowerCase() === 'true'
+    this.warnedOnInvalidExtraHeaders = false
+    this.authHeader = String(process.env.OLLAMA_AUTH_HEADER || 'Authorization').trim() || 'Authorization'
+    this.authScheme = String(process.env.OLLAMA_AUTH_SCHEME ?? 'Bearer').trim()
+    this.authToken = String(process.env.OLLAMA_AUTH_TOKEN || process.env.OLLAMA_API_KEY || '').trim()
+    this.extraHeaders = this.parseExtraHeaders(process.env.OLLAMA_EXTRA_HEADERS)
     this.warnedOnTlsRetry = false
+  }
+
+  parseExtraHeaders(rawValue) {
+    const value = String(rawValue || '').trim()
+    if (!value) return {}
+
+    try {
+      const parsed = JSON.parse(value)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new Error('OLLAMA_EXTRA_HEADERS must be a JSON object')
+      }
+
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .filter(([key, headerValue]) => String(key || '').trim() && headerValue != null)
+          .map(([key, headerValue]) => [String(key).trim(), String(headerValue)])
+      )
+    } catch (err) {
+      if (!this.warnedOnInvalidExtraHeaders) {
+        this.warnedOnInvalidExtraHeaders = true
+        console.warn(`Ignoring invalid OLLAMA_EXTRA_HEADERS: ${err.message}`)
+      }
+      return {}
+    }
   }
 
   buildUrl(endpoint) {
@@ -34,12 +65,7 @@ class OllamaProvider {
         port: url.port || undefined,
         path: `${url.pathname}${url.search}`,
         method,
-        headers: {
-          ...(payload ? {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload),
-          } : {}),
-        },
+        headers: this.buildRequestHeaders(payload),
         ...(url.protocol === 'https:' ? { rejectUnauthorized } : {}),
       }, res => {
         let responseBody = ''
@@ -64,6 +90,41 @@ class OllamaProvider {
       req.end()
     })
       .finally(() => cleanup())
+  }
+
+  buildAuthorizationValue() {
+    if (!this.authToken) return null
+    return this.authScheme ? `${this.authScheme} ${this.authToken}` : this.authToken
+  }
+
+  buildRequestHeaders(payload = null) {
+    const authValue = this.buildAuthorizationValue()
+
+    return {
+      ...this.extraHeaders,
+      ...(authValue ? { [this.authHeader]: authValue } : {}),
+      ...(payload ? {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      } : {}),
+    }
+  }
+
+  hasAuthConfigured() {
+    return Boolean(this.authToken || Object.keys(this.extraHeaders).length)
+  }
+
+  isAuthResponse(response) {
+    return [401, 403].includes(Number(response?.status || 0))
+  }
+
+  parseModelsFromBody(body) {
+    try {
+      const data = JSON.parse(body)
+      return Array.isArray(data?.models) ? data.models : []
+    } catch {
+      return []
+    }
   }
 
   async request(endpoint, { method = 'GET', body = null, timeoutMs = 5000, signal = null } = {}) {
@@ -91,6 +152,23 @@ class OllamaProvider {
     return err
   }
 
+  resolveNumPredict(options = {}) {
+    const value = Number(options.numPredict ?? options.maxTokens)
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 2048
+  }
+
+  buildGenerationOptions(options = {}) {
+    const generationOptions = {
+      num_predict: this.resolveNumPredict(options),
+    }
+
+    if (Number.isFinite(options.temperature)) {
+      generationOptions.temperature = options.temperature
+    }
+
+    return generationOptions
+  }
+
   bindAbortSignal(signal, destroy) {
     if (!signal) return () => {}
     if (signal.aborted) {
@@ -106,6 +184,7 @@ class OllamaProvider {
   async chat(messages, systemPrompt, model = 'auto', options = {}) {
     const useModel = model === 'auto' ? this.defaultModel : model
     const startTime = Date.now()
+    const timeoutMs = normalizeTimeoutMs(options.timeoutMs, this.chatTimeoutMs)
 
     const allMessages = [
       { role: 'system', content: systemPrompt },
@@ -118,9 +197,9 @@ class OllamaProvider {
         model: useModel,
         messages: allMessages,
         stream: false,
-        options: { num_predict: 2048 },
+        options: this.buildGenerationOptions(options),
       },
-      timeoutMs: this.chatTimeoutMs,
+      timeoutMs,
       signal: options.signal,
     })
 
@@ -129,10 +208,14 @@ class OllamaProvider {
     }
 
     const data = JSON.parse(response.body)
+    const usage = normalizeTokenUsage({
+      promptTokens: data.prompt_eval_count,
+      completionTokens: data.eval_count,
+    })
 
     return {
       content: data.message?.content || '',
-      tokensUsed: (data.prompt_eval_count || 0) + (data.eval_count || 0),
+      ...usage,
       model: useModel,
       provider: 'ollama',
       responseTimeMs: Date.now() - startTime,
@@ -158,10 +241,7 @@ class OllamaProvider {
         port: url.port || undefined,
         path: `${url.pathname}${url.search}`,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
+        headers: this.buildRequestHeaders(payload),
         ...(url.protocol === 'https:' ? { rejectUnauthorized } : {}),
       }, res => {
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
@@ -205,9 +285,11 @@ class OllamaProvider {
     })
   }
 
-  async streamChat(messages, systemPrompt, model = 'auto', { onToken, signal } = {}) {
+  async streamChat(messages, systemPrompt, model = 'auto', options = {}) {
+    const { onToken, signal } = options
     const useModel = model === 'auto' ? this.defaultModel : model
     const startTime = Date.now()
+    const timeoutMs = normalizeTimeoutMs(options.timeoutMs, this.chatTimeoutMs)
     const allMessages = [
       { role: 'system', content: systemPrompt },
       ...messages,
@@ -218,7 +300,7 @@ class OllamaProvider {
       model: useModel,
       messages: allMessages,
       stream: true,
-      options: { num_predict: 2048 },
+      options: this.buildGenerationOptions(options),
     })
 
     const execute = async (rejectUnauthorized) => {
@@ -229,7 +311,7 @@ class OllamaProvider {
       await this.makeStreamingRequest(
         url,
         payload,
-        this.chatTimeoutMs,
+        timeoutMs,
         rejectUnauthorized,
         {
           signal,
@@ -253,7 +335,10 @@ class OllamaProvider {
 
       return {
         content,
-        tokensUsed: promptEvalCount + evalCount,
+        ...normalizeTokenUsage({
+          promptTokens: promptEvalCount,
+          completionTokens: evalCount,
+        }),
         model: useModel,
         provider: 'ollama',
         responseTimeMs: Date.now() - startTime,
@@ -274,15 +359,58 @@ class OllamaProvider {
     }
   }
 
-  async listModels() {
+  async getStatus() {
+    const host = this.baseUrl
+    const authConfigured = this.hasAuthConfigured()
+
     try {
-      const response = await this.request('api/tags', { timeoutMs: 5000 })
-      if (!response.ok) return []
-      const data = JSON.parse(response.body)
-      return data.models || []
-    } catch {
-      return []
+      const response = await this.request('api/tags', { timeoutMs: 3000 })
+      const requiresAuth = this.isAuthResponse(response)
+      const models = response.ok ? this.parseModelsFromBody(response.body) : []
+
+      if (response.ok) {
+        return {
+          connected: true,
+          host,
+          statusCode: response.status,
+          models,
+          requiresAuth: false,
+          authConfigured,
+          error: null,
+          detail: null,
+        }
+      }
+
+      return {
+        connected: false,
+        host,
+        statusCode: response.status,
+        models: [],
+        requiresAuth,
+        authConfigured,
+        error: requiresAuth ? 'Authentication required' : `Ollama error: ${response.status}`,
+        detail: requiresAuth
+          ? `${host} returned HTTP ${response.status}. Configure OLLAMA_AUTH_TOKEN, OLLAMA_AUTH_HEADER/OLLAMA_AUTH_SCHEME, or OLLAMA_EXTRA_HEADERS.`
+          : `Ollama responded with HTTP ${response.status}.`,
+      }
+    } catch (err) {
+      return {
+        connected: false,
+        host,
+        statusCode: null,
+        models: [],
+        requiresAuth: false,
+        authConfigured,
+        error: err?.message || 'Connection failed',
+        detail: err?.message || 'Connection failed',
+        code: err?.code || null,
+      }
     }
+  }
+
+  async listModels() {
+    const status = await this.getStatus()
+    return status.connected ? status.models : []
   }
 
   async pullModel(modelName) {
@@ -296,12 +424,8 @@ class OllamaProvider {
   }
 
   async isRunning() {
-    try {
-      const response = await this.request('api/tags', { timeoutMs: 3000 })
-      return response.ok
-    } catch {
-      return false
-    }
+    const status = await this.getStatus()
+    return status.connected
   }
 
   isConfigured() {

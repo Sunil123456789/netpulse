@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 import { getESClient } from '../config/elasticsearch.js'
 import User from '../models/User.js'
 import { streamChat } from './ai/chat.js'
+import { buildChatErrorPayload } from './ai/chatErrors.js'
 
 const LIVE_FEED_ROOMS = new Set(['soc', 'noc'])
 const AUTHENTICATED_ROOM = 'authenticated'
@@ -59,6 +60,14 @@ async function handleChatStream(socket, payload = {}) {
 
   const controller = new AbortController()
   activeChatStreams.set(key, controller)
+  console.log('AI chat stream started:', {
+    requestId,
+    socketId: socket.id,
+    userId: socket.user?.id,
+    provider: payload.provider || 'task-config',
+    model: payload.model || 'auto',
+    context: payload.context || 'all',
+  })
   emitChatEvent(socket, 'ai:chat:stage', requestId, {
     stage: 'queued',
     message: 'Preparing request...',
@@ -77,13 +86,38 @@ async function handleChatStream(socket, payload = {}) {
     })
 
     if (!controller.signal.aborted) {
+      console.log('AI chat stream completed:', {
+        requestId,
+        socketId: socket.id,
+        provider: result.provider,
+        model: result.model,
+        responseTimeMs: result.responseTimeMs,
+      })
       emitChatEvent(socket, 'ai:chat:done', requestId, result)
     }
   } catch (err) {
     const aborted = controller.signal.aborted || err?.name === 'AbortError'
+    const payload = aborted
+      ? {
+          code: 'aborted',
+          kind: 'canceled',
+          error: 'Request canceled',
+          message: 'Request canceled',
+        }
+      : buildChatErrorPayload(err)
+    console.error('AI chat stream failed:', {
+      requestId,
+      socketId: socket.id,
+      aborted,
+      error: payload.error,
+      kind: payload.kind,
+      provider: payload.provider,
+      model: payload.model,
+      timeoutMs: payload.timeoutMs,
+    })
     emitChatEvent(socket, 'ai:chat:error', requestId, {
-      code: aborted ? 'aborted' : 'chat_failed',
-      error: aborted ? 'Chat canceled' : err.message,
+      code: aborted ? 'aborted' : (payload.kind || 'chat_failed'),
+      ...payload,
     })
   } finally {
     activeChatStreams.delete(key)
@@ -128,9 +162,10 @@ export function initWebSocket(io) {
     socket.on('ai:chat:start', payload => {
       handleChatStream(socket, payload).catch(err => {
         const requestId = String(payload?.requestId || '').trim() || null
+        const chatPayload = buildChatErrorPayload(err)
         emitChatEvent(socket, 'ai:chat:error', requestId, {
-          code: 'chat_failed',
-          error: err.message,
+          code: chatPayload.kind || 'chat_failed',
+          ...chatPayload,
         })
       })
     })

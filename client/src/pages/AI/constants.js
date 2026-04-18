@@ -34,6 +34,7 @@ export const TAB_SECTIONS = [
       { id: 'search', label: 'Search', icon: '🔍' },
       { id: 'brief', label: 'Brief', icon: '📋' },
       { id: 'modellab', label: 'Model Lab', icon: '🧪' },
+      { id: 'benchmark', label: 'Benchmark', icon: '⚡' },
     ],
   },
   {

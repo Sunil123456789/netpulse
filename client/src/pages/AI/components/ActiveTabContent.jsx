@@ -1,5 +1,6 @@
 import { TabPlaceholder } from './Common.jsx'
 import AnomalyTab from '../tabs/AnomalyTab.jsx'
+import BenchmarkTab from '../tabs/BenchmarkTab.jsx'
 import BriefTab from '../tabs/BriefTab.jsx'
 import ChatTab from '../tabs/ChatTab.jsx'
 import ModelLabTab from '../tabs/ModelLabTab.jsx'
@@ -101,6 +102,15 @@ export default function ActiveTabContent({
         providerStatus={providerStatus}
         ollamaStatus={ollamaStatus}
         range={range}
+        addToast={addToast}
+      />
+    )
+  }
+
+  if (tab === 'benchmark') {
+    return (
+      <BenchmarkTab
+        ollamaStatus={ollamaStatus}
         addToast={addToast}
       />
     )
