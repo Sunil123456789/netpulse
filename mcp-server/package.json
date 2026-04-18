@@ -1,0 +1,25 @@
+{
+  "name": "netpulse-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server exposing NetPulse NOC/SOC data and AI features to Claude Desktop, Open WebUI, and other MCP clients",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "bin": {
+    "netpulse-mcp": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "inspect": "npx @modelcontextprotocol/inspector node src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["mcp", "netpulse", "noc", "soc", "network-monitoring", "security"],
+  "author": "",
+  "license": "MIT"
+}

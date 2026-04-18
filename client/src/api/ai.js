@@ -2,19 +2,35 @@ import api from './client.js'
 
 export const AI_TIMEOUT_STORAGE_KEY = 'netpulse.aiTimeoutMs'
 export const DEFAULT_AI_TIMEOUT_MS = 90000
+export const DEFAULT_OLLAMA_CHAT_TIMEOUT_MS = 900000
+export const PROVIDER_MIN_TIMEOUT_MS = {
+  ollama: 180000,
+}
 export const AI_TIMEOUT_OPTIONS = [
   { value: 30000, label: '30s' },
   { value: 60000, label: '60s' },
   { value: 90000, label: '90s' },
   { value: 120000, label: '120s' },
   { value: 180000, label: '180s' },
+  { value: 300000, label: '300s' },
+  { value: 600000, label: '600s' },
+  { value: 900000, label: '900s' },
 ]
 
-export function getAIRequestTimeoutMs() {
-  if (typeof window === 'undefined') return DEFAULT_AI_TIMEOUT_MS
+export function getAIRequestTimeoutMs(provider = null) {
+  const minimumTimeoutMs = PROVIDER_MIN_TIMEOUT_MS[provider] || DEFAULT_AI_TIMEOUT_MS
+  if (typeof window === 'undefined') return minimumTimeoutMs
   const raw = window.localStorage.getItem(AI_TIMEOUT_STORAGE_KEY)
   const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed >= 30000 ? parsed : DEFAULT_AI_TIMEOUT_MS
+  const selectedTimeoutMs = Number.isFinite(parsed) && parsed >= 30000 ? parsed : DEFAULT_AI_TIMEOUT_MS
+  return Math.max(selectedTimeoutMs, minimumTimeoutMs)
+}
+
+export function getAIChatRequestTimeoutMs(provider = null) {
+  const genericTimeoutMs = getAIRequestTimeoutMs(provider)
+  return provider === 'ollama'
+    ? Math.max(genericTimeoutMs, DEFAULT_OLLAMA_CHAT_TIMEOUT_MS)
+    : genericTimeoutMs
 }
 
 export function setAIRequestTimeoutMs(timeoutMs) {
@@ -22,33 +38,85 @@ export function setAIRequestTimeoutMs(timeoutMs) {
   window.localStorage.setItem(AI_TIMEOUT_STORAGE_KEY, String(timeoutMs))
 }
 
-function withAITimeout(config = {}) {
-  return { ...config, timeout: getAIRequestTimeoutMs() }
+function resolveAITimeoutMs(task, provider = null) {
+  return task === 'chat'
+    ? getAIChatRequestTimeoutMs(provider)
+    : getAIRequestTimeoutMs(provider)
 }
 
-export function describeAIRequestError(err, fallbackMessage = 'Request failed') {
-  const message = err?.response?.data?.error || err?.message || fallbackMessage
+function withAITimeout(config = {}, provider = null, task = 'generic') {
+  const { timeoutProvider, timeoutTask, ...requestConfig } = config
+  return {
+    ...requestConfig,
+    timeout: resolveAITimeoutMs(timeoutTask || task, provider || timeoutProvider || null),
+  }
+}
 
-  if (err?.code === 'ERR_CANCELED' || /aborted|canceled/i.test(message)) {
+function formatAIRequestTarget(provider = null, model = null) {
+  return [provider, model].filter(Boolean).join(' / ')
+}
+
+export function describeAIRequestError(err, fallbackMessage = 'Request failed', provider = null, options = {}) {
+  const payload = err?.response?.data || {}
+  const message = payload.error || payload.message || err?.message || fallbackMessage
+  const kind = payload.kind || null
+  const errorProvider = payload.provider || provider || null
+  const errorModel = payload.model || null
+  const timeoutMs = Number(payload.timeoutMs) || resolveAITimeoutMs(options.task || 'generic', errorProvider)
+
+  if (err?.code === 'ERR_CANCELED' || kind === 'canceled' || /aborted|canceled/i.test(message)) {
     return {
       kind: 'canceled',
       message: 'Request canceled',
-      detail: message,
+      detail: payload.detail || message,
+      provider: errorProvider,
+      model: errorModel,
     }
   }
 
-  if (err?.code === 'ECONNABORTED' || /timed out|timeout/i.test(message)) {
+  if (kind === 'model_missing') {
+    return {
+      kind,
+      message,
+      detail: payload.detail || message,
+      provider: errorProvider,
+      model: errorModel,
+      timeoutMs: payload.timeoutMs || null,
+    }
+  }
+
+  if (kind === 'provider_unreachable') {
+    return {
+      kind,
+      message,
+      detail: payload.detail || message,
+      provider: errorProvider,
+      model: errorModel,
+      timeoutMs: payload.timeoutMs || null,
+    }
+  }
+
+  if (kind === 'timeout' || err?.code === 'ECONNABORTED' || /timed out|timeout/i.test(message)) {
+    const targetLabel = formatAIRequestTarget(errorProvider, errorModel)
     return {
       kind: 'timeout',
-      message: `This request timed out after ${Math.round(getAIRequestTimeoutMs() / 1000)} seconds.`,
-      detail: message,
+      message: kind === 'timeout' && message !== fallbackMessage
+        ? message
+        : `${targetLabel || 'This request'} timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
+      detail: payload.detail || message,
+      provider: errorProvider,
+      model: errorModel,
+      timeoutMs,
     }
   }
 
   return {
-    kind: 'generic',
+    kind: kind || 'generic',
     message,
-    detail: message,
+    detail: payload.detail || message,
+    provider: errorProvider,
+    model: errorModel,
+    timeoutMs: payload.timeoutMs || null,
   }
 }
 
@@ -70,7 +138,7 @@ export const aiAPI = {
 
   // Chat
   chat: (messages, context, dateRange, provider, model, config = {}) =>
-    api.post('/api/ai/chat', { messages, context, dateRange, provider, model }, withAITimeout(config)),
+    api.post('/api/ai/chat', { messages, context, dateRange, provider, model }, withAITimeout(config, provider, 'chat')),
   getChatHistory: () => api.get('/api/ai/chat/history', withAITimeout()),
   compareModels: (question, context, dateRange, modelOverrides, targets, config = {}) =>
     api.post('/api/ai/compare', { question, context, dateRange, modelOverrides, targets }, withAITimeout(config)),
@@ -99,6 +167,10 @@ export const aiAPI = {
   rateResponse: (scoreId, rating) =>
     api.post(`/api/ai/scores/${scoreId}/rate`, { rating }),
 
+  // Analytics
+  getAnalyticsOverview: (params, config = {}) => api.get('/api/ai/analytics/overview', { ...config, params }),
+  getAnalyticsRuns: (params, config = {}) => api.get('/api/ai/analytics/runs', { ...config, params }),
+
   // Scheduler
   getSchedulerStatus: () => api.get('/api/ai/scheduler/status'),
   startScheduler: (task) => api.post(`/api/ai/scheduler/start/${task}`),
@@ -108,6 +180,12 @@ export const aiAPI = {
   // Ollama
   getOllamaStatus: () => api.get('/api/ai/ollama/status'),
   pullModel: (model) => api.post('/api/ai/ollama/pull', { model }),
+
+  // Benchmark
+  benchmarkModel: (model, prompt, rounds = 1, options = {}) => {
+    const { testType = 'generic', expectedAnswer = null, ...config } = options
+    return api.post('/api/ai/benchmark', { model, prompt, rounds, testType, expectedAnswer }, { ...config, timeout: 600000 })
+  },
 }
 
 export const mlAPI = {

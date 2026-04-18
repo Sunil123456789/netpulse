@@ -3,6 +3,11 @@ import AIAnomaly from '../../models/AIAnomaly.js'
 import AIBaseline from '../../models/AIBaseline.js'
 import { taskRouter } from '../ai/taskRouter.js'
 import { buildImprovementDisplay, buildMetering } from '../ai/presentation.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from '../ai/executionTracking.js'
 
 const IMPROVEMENT_SYSTEM_PROMPT = `You are an ML optimization expert
 for network security monitoring systems.
@@ -85,8 +90,17 @@ async function getMLPerformanceStats(mlModel) {
 async function requestMLImprovement({
   mlModel,
   overrideProvider = null,
-  overrideModel = null
+  overrideModel = null,
+  trigger = 'http',
+  signal = null,
 }) {
+  const startTime = Date.now()
+  const execution = await startExecutionLog({
+    taskKey: 'ml.improvement',
+    domain: 'ml',
+    trigger,
+    requestLabel: mlModel,
+  })
   const stats = await getMLPerformanceStats(mlModel)
 
   const prompt = `ML Model Performance Analysis Request:
@@ -112,62 +126,85 @@ to reduce false positives while maintaining detection accuracy.
 Focus on threshold adjustments, metric-specific settings, and
 time-of-day considerations.`
 
-  const aiResult = await taskRouter.route(
-    'anomaly',
-    [{ role: 'user', content: prompt }],
-    IMPROVEMENT_SYSTEM_PROMPT,
-    overrideProvider,
-    overrideModel
-  )
-
-  // Parse AI response
-  let suggestion
   try {
-    const cleaned = aiResult.content
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      .trim()
-    suggestion = JSON.parse(cleaned)
-  } catch {
-    suggestion = {
-      analysis: aiResult.content?.slice(0, 500) || 'Analysis failed',
-      suggestedChanges: [],
-      expectedImprovement: 'Manual review required',
-      confidence: 'low',
-      additionalNotes: 'AI response parsing failed'
+    const aiResult = await taskRouter.routeStream(
+      'anomaly',
+      [{ role: 'user', content: prompt }],
+      IMPROVEMENT_SYSTEM_PROMPT,
+      overrideProvider,
+      overrideModel,
+      {},
+      signal,
+      {
+        maxTokens: 512,
+        temperature: 0.2,
+      }
+    )
+
+    // Parse AI response
+    let suggestion
+    try {
+      const cleaned = aiResult.content
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .trim()
+      suggestion = JSON.parse(cleaned)
+    } catch {
+      suggestion = {
+        analysis: aiResult.content?.slice(0, 500) || 'Analysis failed',
+        suggestedChanges: [],
+        expectedImprovement: 'Manual review required',
+        confidence: 'low',
+        additionalNotes: 'AI response parsing failed'
+      }
     }
-  }
 
-  // Save improvement suggestion to MongoDB
-  const saved = await AIMLImprovement.create({
-    mlModel,
-    triggeredBy: 'manual',
-    aiProvider: aiResult.provider,
-    aiModel: aiResult.model,
-    performanceBefore: {
-      falsePositiveRate: stats.falsePositiveRate,
-      totalRuns: stats.totalRuns,
-      totalAnomalies: stats.totalAnomalies,
-      threshold: 2.0
-    },
-    aiSuggestion: aiResult.content,
-    suggestedChanges: suggestion.suggestedChanges || [],
-    status: 'pending'
-  })
+    // Save improvement suggestion to MongoDB
+    const saved = await AIMLImprovement.create({
+      mlModel,
+      triggeredBy: 'manual',
+      aiProvider: aiResult.provider,
+      aiModel: aiResult.model,
+      performanceBefore: {
+        falsePositiveRate: stats.falsePositiveRate,
+        totalRuns: stats.totalRuns,
+        totalAnomalies: stats.totalAnomalies,
+        threshold: 2.0
+      },
+      aiSuggestion: aiResult.content,
+      suggestedChanges: suggestion.suggestedChanges || [],
+      status: 'pending'
+    })
 
-  return {
-    id: saved._id,
-    mlModel,
-    stats,
-    suggestion,
-    provider: aiResult.provider,
-    model: aiResult.model,
-    tokensUsed: aiResult.tokensUsed,
-    responseTimeMs: aiResult.responseTimeMs,
-    status: 'pending',
-    createdAt: saved.createdAt,
-    display: buildImprovementDisplay({ mlModel, suggestion }),
-    metering: buildMetering(aiResult),
+    const payload = {
+      id: saved._id,
+      mlModel,
+      stats,
+      suggestion,
+      provider: aiResult.provider,
+      model: aiResult.model,
+      promptTokens: aiResult.promptTokens,
+      completionTokens: aiResult.completionTokens,
+      totalTokens: aiResult.totalTokens,
+      tokensUsed: aiResult.totalTokens,
+      responseTimeMs: aiResult.responseTimeMs,
+      status: 'pending',
+      createdAt: saved.createdAt,
+      display: buildImprovementDisplay({ mlModel, suggestion }),
+      metering: buildMetering(aiResult),
+    }
+
+    await completeExecutionLog(execution._id, {
+      result: aiResult,
+      durationMs: Date.now() - startTime,
+    })
+
+    return payload
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+    })
+    throw err
   }
 }
 

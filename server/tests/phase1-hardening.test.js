@@ -15,8 +15,7 @@ const mockUserModel = {
 }
 
 const mockOllamaProvider = {
-  isRunning: jest.fn(),
-  listModels: jest.fn(),
+  getStatus: jest.fn(),
   pullModel: jest.fn(),
   chat: jest.fn(),
   isConfigured: jest.fn(() => true),
@@ -103,8 +102,13 @@ const app = buildTestApp()
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockOllamaProvider.isRunning.mockResolvedValue(false)
-  mockOllamaProvider.listModels.mockResolvedValue([])
+  mockOllamaProvider.getStatus.mockResolvedValue({
+    connected: false,
+    models: [],
+    requiresAuth: false,
+    authConfigured: false,
+    detail: null,
+  })
 })
 
 describe('authentication flow', () => {
@@ -176,11 +180,16 @@ describe('admin route hardening', () => {
 describe('authenticated AI route', () => {
   test('provider status returns ollama readiness for an authenticated user', async () => {
     mockUserModel.findById.mockResolvedValue(activeUser('viewer'))
-    mockOllamaProvider.isRunning.mockResolvedValue(true)
-    mockOllamaProvider.listModels.mockResolvedValue([
-      { name: 'llama3.2:3b' },
-      { name: 'mistral' },
-    ])
+    mockOllamaProvider.getStatus.mockResolvedValue({
+      connected: true,
+      models: [
+        { name: 'llama3.2:3b' },
+        { name: 'mistral' },
+      ],
+      requiresAuth: false,
+      authConfigured: false,
+      detail: null,
+    })
 
     const response = await request(app)
       .get('/api/ai/provider/status')

@@ -1,6 +1,11 @@
 import { taskRouter } from './taskRouter.js'
 import { scoreResponse } from './scorer.js'
 import { buildMetering, buildTriageDisplay } from './presentation.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from './executionTracking.js'
 
 const TRIAGE_SYSTEM_PROMPT = `You are a senior SOC analyst for
 Lenskart's network security team. You analyze security alerts and
@@ -65,19 +70,28 @@ async function checkIPReputation(ip) {
 async function triageAlert({
   alert,
   overrideProvider = null,
-  overrideModel = null
+  overrideModel = null,
+  trigger = 'http',
+  signal = null,
 }) {
   const startTime = Date.now()
+  const execution = await startExecutionLog({
+    taskKey: 'ai.triage',
+    domain: 'ai',
+    trigger,
+    requestLabel: alert.name || alert.message || alert.description || 'Alert triage',
+  })
 
-  // Check IP reputation if srcip available
-  let ipReputation = null
-  if (alert.srcip || alert.data?.srcip) {
-    const ip = alert.srcip || alert.data?.srcip
-    ipReputation = await checkIPReputation(ip)
-  }
+  try {
+    // Check IP reputation if srcip available
+    let ipReputation = null
+    if (alert.srcip || alert.data?.srcip) {
+      const ip = alert.srcip || alert.data?.srcip
+      ipReputation = await checkIPReputation(ip)
+    }
 
-  // Build alert context for AI
-  const alertContext = `Security Alert Details:
+    // Build alert context for AI
+    const alertContext = `Security Alert Details:
 Name: ${alert.name || 'Unknown'}
 Type: ${alert.type || alert.subtype || 'Unknown'}
 Source IP: ${alert.srcip || alert.data?.srcip || 'Unknown'}
@@ -99,65 +113,88 @@ IP Reputation Check:
 - ISP: ${ipReputation.isp}
 - Usage Type: ${ipReputation.usageType}` : ''}`
 
-  // Route to AI for triage
-  const aiResult = await taskRouter.route(
-    'triage',
-    [{ role: 'user', content: alertContext }],
-    TRIAGE_SYSTEM_PROMPT,
-    overrideProvider,
-    overrideModel
-  )
+    // Route to AI for triage
+    const aiResult = await taskRouter.routeStream(
+      'triage',
+      [{ role: 'user', content: alertContext }],
+      TRIAGE_SYSTEM_PROMPT,
+      overrideProvider,
+      overrideModel,
+      {},
+      signal,
+      {
+        maxTokens: 384,
+        temperature: 0.2,
+      }
+    )
 
-  // Parse AI response
-  let triageResult
-  try {
-    const cleaned = aiResult.content
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      .trim()
-    triageResult = JSON.parse(cleaned)
-  } catch {
-    // If JSON parsing fails, create a basic response
-    triageResult = {
-      severity: 'medium',
-      category: 'other',
-      summary: aiResult.content?.slice(0, 200) || 'Analysis failed',
-      recommendation: 'Manual review required',
-      falsePositiveLikelihood: 'medium',
-      autoTicket: false,
-      reasoning: 'AI response parsing failed',
-      relatedCVE: null,
-      mitreTactic: null
+    // Parse AI response
+    let triageResult
+    try {
+      const cleaned = aiResult.content
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .trim()
+      triageResult = JSON.parse(cleaned)
+    } catch {
+      // If JSON parsing fails, create a basic response
+      triageResult = {
+        severity: 'medium',
+        category: 'other',
+        summary: aiResult.content?.slice(0, 200) || 'Analysis failed',
+        recommendation: 'Manual review required',
+        falsePositiveLikelihood: 'medium',
+        autoTicket: false,
+        reasoning: 'AI response parsing failed',
+        relatedCVE: null,
+        mitreTactic: null
+      }
     }
-  }
 
-  // Score the triage response
-  const scoring = await scoreResponse({
-    task: 'triage',
-    provider: aiResult.provider,
-    model: aiResult.model,
-    query: alert.name || 'Unknown alert',
-    response: aiResult.content,
-    responseTimeMs: aiResult.responseTimeMs,
-    tokensUsed: aiResult.tokensUsed,
-    save: true
-  })
+    // Score the triage response
+    const scoring = await scoreResponse({
+      task: 'triage',
+      provider: aiResult.provider,
+      model: aiResult.model,
+      query: alert.name || 'Unknown alert',
+      response: aiResult.content,
+      responseTimeMs: aiResult.responseTimeMs,
+      tokensUsed: aiResult.totalTokens,
+      save: true
+    })
 
-  await taskRouter.updateLastRun('triage', 'success', Date.now() - startTime)
+    await taskRouter.updateLastRun('triage', 'success', Date.now() - startTime)
 
-  return {
-    ...triageResult,
-    ipReputation,
-    provider: aiResult.provider,
-    model: aiResult.model,
-    tokensUsed: aiResult.tokensUsed,
-    responseTimeMs: aiResult.responseTimeMs,
-    scores: scoring.scores,
-    totalScore: scoring.totalScore,
-    scoreId: scoring.scoreId,
-    triageAt: new Date().toISOString(),
-    display: buildTriageDisplay({ ...triageResult, ipReputation }, aiResult.content),
-    metering: buildMetering(aiResult),
+    const payload = {
+      ...triageResult,
+      ipReputation,
+      provider: aiResult.provider,
+      model: aiResult.model,
+      promptTokens: aiResult.promptTokens,
+      completionTokens: aiResult.completionTokens,
+      totalTokens: aiResult.totalTokens,
+      tokensUsed: aiResult.totalTokens,
+      responseTimeMs: aiResult.responseTimeMs,
+      scores: scoring.scores,
+      totalScore: scoring.totalScore,
+      scoreId: scoring.scoreId,
+      triageAt: new Date().toISOString(),
+      display: buildTriageDisplay({ ...triageResult, ipReputation }, aiResult.content),
+      metering: buildMetering(aiResult),
+    }
+
+    await completeExecutionLog(execution._id, {
+      result: aiResult,
+      durationMs: Date.now() - startTime,
+      scoreId: scoring.scoreId,
+    })
+
+    return payload
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+    })
+    throw err
   }
 }
 

@@ -10,9 +10,15 @@ import {
   saveUserRating,
   getLeaderboard, getProviderStats, getRecentScores,
 } from '../services/ai/scorer.js'
+import {
+  getAnalyticsOverview,
+  getAnalyticsRuns,
+} from '../services/ai/analytics.js'
 import AITaskConfig from '../models/AITaskConfig.js'
 import { scheduler } from '../services/ai/scheduler.js'
 import { getTaskDefault, getTaskDefaults } from '../config/aiTaskDefaults.js'
+import { createRequestAbortSignal } from '../utils/requestAbort.js'
+import { buildChatErrorPayload, normalizeChatError } from '../services/ai/chatErrors.js'
 
 const router = Router()
 
@@ -20,8 +26,7 @@ const router = Router()
 // Returns status of all AI providers
 router.get('/status', async (req, res) => {
   try {
-    const ollamaRunning = await ollamaProvider.isRunning()
-    const ollamaModels = ollamaRunning ? await ollamaProvider.listModels() : []
+    const ollamaStatus = await ollamaProvider.getStatus()
 
     res.json({
       providers: {
@@ -36,10 +41,13 @@ router.get('/status', async (req, res) => {
           models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
         },
         ollama: {
-          configured: ollamaRunning,
+          configured: ollamaProvider.isConfigured(),
           name: 'Ollama (Local)',
-          running: ollamaRunning,
-          models: ollamaModels.map(m => ({
+          running: ollamaStatus.connected,
+          requiresAuth: ollamaStatus.requiresAuth,
+          authConfigured: ollamaStatus.authConfigured,
+          detail: ollamaStatus.detail,
+          models: ollamaStatus.models.map(m => ({
             name: m.name,
             size: m.size,
             modified: m.modified_at,
@@ -56,12 +64,16 @@ router.get('/status', async (req, res) => {
 // Returns Ollama connection status and installed models
 router.get('/ollama/status', async (req, res) => {
   try {
-    const running = await ollamaProvider.isRunning()
-    const models = running ? await ollamaProvider.listModels() : []
+    const status = await ollamaProvider.getStatus()
     res.json({
-      connected: running,
-      host: process.env.OLLAMA_HOST || 'http://localhost:11434',
-      models: models.map(m => ({
+      connected: status.connected,
+      host: status.host,
+      statusCode: status.statusCode,
+      requiresAuth: status.requiresAuth,
+      authConfigured: status.authConfigured,
+      error: status.error,
+      detail: status.detail,
+      models: status.models.map(m => ({
         name: m.name,
         size: m.size,
         sizeGB: m.size ? (m.size / 1024 / 1024 / 1024).toFixed(1) : null,
@@ -71,6 +83,96 @@ router.get('/ollama/status', async (req, res) => {
     })
   } catch (err) {
     res.json({ connected: false, error: err.message, models: [] })
+  }
+})
+
+// POST /api/ai/benchmark
+// Run a single-model benchmark with TTFT, quality scoring, and streaming metrics
+router.post('/benchmark', async (req, res) => {
+  try {
+    const { model, prompt, rounds = 1, testType = 'generic', expectedAnswer = null } = req.body
+    if (!model || !prompt) return res.status(400).json({ error: 'model and prompt required' })
+
+    const roundCount = Math.min(Math.max(1, Number(rounds) || 1), 5)
+    const results = []
+
+    for (let i = 0; i < roundCount; i++) {
+      const t0 = Date.now()
+      let ttft = null
+
+      try {
+        const result = await ollamaProvider.streamChat(
+          [{ role: 'user', content: prompt }],
+          'You are a helpful assistant. Be concise and follow instructions exactly.',
+          model,
+          {
+            timeoutMs: 120000,
+            onToken: (token) => {
+              if (ttft === null && token.trim()) ttft = Date.now() - t0
+            },
+          }
+        )
+
+        const tps = result.completionTokens > 0 && result.responseTimeMs > 0
+          ? Math.round((result.completionTokens / result.responseTimeMs) * 1000 * 10) / 10
+          : 0
+
+        const reply = (result.content || '').toLowerCase().trim()
+        let qualityScore = null
+        if ((testType === 'exact' || testType === 'contains') && expectedAnswer) {
+          qualityScore = reply.includes(expectedAnswer.toLowerCase()) ? 100 : 0
+        } else if (testType === 'code') {
+          qualityScore = /def |=>|lambda |return |\w\s*=\s*/.test(result.content) ? 100 : 0
+        } else if (testType === 'format_list') {
+          const has3 = /1\.\s*\w/.test(result.content) && /2\.\s*\w/.test(result.content) && /3\.\s*\w/.test(result.content)
+          qualityScore = has3 ? 100 : 0
+        } else if (testType === 'length') {
+          qualityScore = (result.content || '').trim().split(/\s+/).length >= 10 ? 100 : 0
+        }
+
+        results.push({
+          round: i + 1,
+          responseTimeMs: result.responseTimeMs,
+          ttft: ttft ?? result.responseTimeMs,
+          promptTokens: result.promptTokens || 0,
+          completionTokens: result.completionTokens || 0,
+          totalTokens: result.totalTokens || 0,
+          tokensPerSec: tps,
+          qualityScore,
+          content: result.content,
+          error: null,
+        })
+      } catch (err) {
+        results.push({ round: i + 1, error: err.message, responseTimeMs: Date.now() - t0, ttft: null })
+      }
+    }
+
+    const successful = results.filter(r => !r.error)
+    const avg = (key) => successful.length > 0
+      ? Math.round(successful.reduce((s, r) => s + Number(r[key] || 0), 0) / successful.length)
+      : 0
+    const avgTps = successful.length > 0
+      ? Math.round(successful.reduce((s, r) => s + r.tokensPerSec, 0) / successful.length * 10) / 10
+      : 0
+    const qualRounds = successful.filter(r => r.qualityScore !== null)
+    const avgQuality = qualRounds.length > 0
+      ? Math.round(qualRounds.reduce((s, r) => s + r.qualityScore, 0) / qualRounds.length)
+      : null
+
+    res.json({
+      model, prompt, testType, rounds: results.length, results,
+      summary: {
+        avgResponseTimeMs: avg('responseTimeMs'),
+        avgTtft: avg('ttft'),
+        avgTokensPerSec: avgTps,
+        avgQualityScore: avgQuality,
+        successRate: `${successful.length}/${results.length}`,
+        totalTokens: successful.reduce((s, r) => s + (r.completionTokens || 0), 0),
+        sampleReply: (successful[0]?.content || '').slice(0, 140),
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 })
 
@@ -195,8 +297,7 @@ router.post('/config/:task/toggle-auto', async (req, res) => {
 // Quick check — which providers are ready to use
 router.get('/provider/status', async (req, res) => {
   try {
-    const ollamaRunning = await ollamaProvider.isRunning()
-    const ollamaModels = ollamaRunning ? await ollamaProvider.listModels() : []
+    const ollamaStatus = await ollamaProvider.getStatus()
 
     res.json({
       claude: {
@@ -208,10 +309,16 @@ router.get('/provider/status', async (req, res) => {
         reason: !process.env.OPENAI_API_KEY ? 'OPENAI_API_KEY not set' : null,
       },
       ollama: {
-        ready: ollamaRunning,
-        reason: !ollamaRunning ? 'Ollama not running or OLLAMA_HOST not reachable' : null,
-        models: ollamaModels.map(m => m.name),
-        modelCount: ollamaModels.length,
+        ready: ollamaStatus.connected,
+        reason: ollamaStatus.connected
+          ? null
+          : ollamaStatus.requiresAuth
+            ? 'Ollama host requires authentication. Configure OLLAMA_AUTH_TOKEN or OLLAMA_EXTRA_HEADERS.'
+            : (ollamaStatus.detail || 'Ollama not running or OLLAMA_HOST not reachable'),
+        requiresAuth: ollamaStatus.requiresAuth,
+        authConfigured: ollamaStatus.authConfigured,
+        models: ollamaStatus.models.map(m => m.name),
+        modelCount: ollamaStatus.models.length,
       },
     })
   } catch (err) {
@@ -239,6 +346,7 @@ router.get('/context', async (req, res) => {
 
 // POST /api/ai/chat
 router.post('/chat', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const {
       messages,
@@ -267,15 +375,24 @@ router.post('/chat', async (req, res) => {
       dateRange:        dateRange || null,
       overrideProvider,
       overrideModel,
+      trigger: 'http',
+      signal,
     })
 
     res.json(result)
   } catch (err) {
-    console.error('Chat error:', err.message)
-    res.status(500).json({
-      error: err.message,
-      hint: 'Check AI provider configuration and API keys',
+    if (signal.aborted) return
+    const chatError = normalizeChatError(err)
+    console.error('Chat error:', {
+      kind: chatError.kind,
+      provider: chatError.provider,
+      model: chatError.model,
+      timeoutMs: chatError.timeoutMs,
+      error: chatError.message,
     })
+    res.status(chatError.statusCode).json(buildChatErrorPayload(chatError))
+  } finally {
+    cleanup()
   }
 })
 
@@ -292,6 +409,7 @@ router.get('/chat/history', async (req, res) => {
 
 // POST /api/ai/compare
 router.post('/compare', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const { question, context, dateRange, modelOverrides, targets } = req.body
 
@@ -305,15 +423,20 @@ router.post('/compare', async (req, res) => {
       dateRange: dateRange || null,
       modelOverrides: modelOverrides || {},
       targets: Array.isArray(targets) ? targets : [],
+      trigger: 'http',
+      signal,
     })
 
     res.json(result)
   } catch (err) {
+    if (signal.aborted) return
     console.error('Model compare error:', err.message)
     res.status(500).json({
       error: err.message,
       hint: 'Check provider availability and retry the comparison',
     })
+  } finally {
+    cleanup()
   }
 })
 
@@ -332,6 +455,39 @@ router.get('/scores/provider-stats', async (req, res) => {
   try {
     const stats = await getProviderStats()
     res.json(stats)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/analytics/overview
+router.get('/analytics/overview', async (req, res) => {
+  try {
+    const overview = await getAnalyticsOverview({
+      from: req.query.from || null,
+      to: req.query.to || null,
+    })
+    res.json(overview)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ai/analytics/runs
+router.get('/analytics/runs', async (req, res) => {
+  try {
+    const runs = await getAnalyticsRuns({
+      from: req.query.from || null,
+      to: req.query.to || null,
+      task: req.query.task || null,
+      provider: req.query.provider || null,
+      model: req.query.model || null,
+      status: req.query.status || null,
+      trigger: req.query.trigger || null,
+      page: req.query.page || 1,
+      limit: req.query.limit || 20,
+    })
+    res.json(runs)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -369,6 +525,7 @@ router.post('/scores/:id/rate', async (req, res) => {
 
 // POST /api/ai/search
 router.post('/search', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const {
       question,
@@ -391,16 +548,20 @@ router.post('/search', async (req, res) => {
       source: source || 'auto',
       dateRange: dateRange || null,
       overrideProvider,
-      overrideModel
+      overrideModel,
+      trigger: 'http',
     })
 
     res.json(result)
   } catch (err) {
+    if (signal.aborted) return
     console.error('NL Search error:', err.message)
     res.status(500).json({
       error: err.message,
       hint: 'Try rephrasing your question'
     })
+  } finally {
+    cleanup()
   }
 })
 
@@ -416,6 +577,7 @@ router.get('/search/history', async (_req, res) => {
 
 // POST /api/ai/triage
 router.post('/triage', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const {
       alert,
@@ -430,16 +592,21 @@ router.post('/triage', async (req, res) => {
     const result = await triageAlert({
       alert,
       overrideProvider,
-      overrideModel
+      overrideModel,
+      trigger: 'http',
+      signal,
     })
 
     res.json(result)
   } catch (err) {
+    if (signal.aborted) return
     console.error('Triage error:', err.message)
     res.status(500).json({
       error: err.message,
       hint: 'Check AI provider configuration'
     })
+  } finally {
+    cleanup()
   }
 })
 
@@ -455,6 +622,7 @@ router.get('/triage/history', async (_req, res) => {
 
 // POST /api/ai/brief/generate
 router.post('/brief/generate', async (req, res) => {
+  const { signal, cleanup } = createRequestAbortSignal(req, res)
   try {
     const {
       dateRange,
@@ -466,16 +634,21 @@ router.post('/brief/generate', async (req, res) => {
       dateRange: dateRange || null,
       overrideProvider,
       overrideModel,
-      triggeredBy: 'manual'
+      triggeredBy: 'manual',
+      trigger: 'http',
+      signal,
     })
 
     res.json(result)
   } catch (err) {
+    if (signal.aborted) return
     console.error('Brief generation error:', err.message)
     res.status(500).json({
       error: err.message,
       hint: 'Brief generation failed - check AI provider'
     })
+  } finally {
+    cleanup()
   }
 })
 
@@ -572,7 +745,7 @@ router.post('/scheduler/run/:task', async (req, res) => {
     const { task } = req.params
 
     // Run immediately in background
-    scheduler.runTask(task).catch(err =>
+    scheduler.runTask(task, { trigger: 'manual' }).catch(err =>
       console.error(`Manual run error for ${task}:`, err.message)
     )
 

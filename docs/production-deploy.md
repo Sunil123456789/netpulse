@@ -36,6 +36,7 @@ Review these values first:
 - `OPENAI_API_KEY`
 - `OLLAMA_HOST`
 - `OLLAMA_MODEL`
+- `OLLAMA_AUTH_TOKEN` or `OLLAMA_EXTRA_HEADERS` if your Ollama gateway requires auth
 - `ZABBIX_URL`
 - `ZABBIX_TOKEN`
 

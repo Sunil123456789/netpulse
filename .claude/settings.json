@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat -ano)",
+      "Bash(docker compose *)",
+      "Bash(tasklist /FI \"PID eq 21416\")",
+      "Bash(tasklist /FI \"PID eq 2792\")",
+      "Bash(wmic process *)",
+      "Bash(powershell \"Get-Process -Id 21416 | Select-Object Name,Id\")",
+      "Bash(npm install *)"
+    ]
+  }
+}

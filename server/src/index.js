@@ -27,6 +27,7 @@ import zabbixRoutes from './routes/zabbix.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authenticate, authorize } from './middleware/auth.js'
 import './models/AITaskConfig.js'
+import './models/AIExecutionLog.js'
 import './models/AIScore.js'
 import './models/AIAnomaly.js'
 import './models/AIBrief.js'
@@ -39,15 +40,43 @@ for (const v of ['JWT_SECRET', 'MONGO_URI', 'ES_HOST']) {
   if (!process.env[v]) throw new Error(`Missing required env var: ${v}`)
 }
 
+const defaultAllowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]
+
+const allowedOrigins = [
+  ...new Set([
+    ...defaultAllowedOrigins,
+    ...String(process.env.CORS_ORIGIN || '')
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean),
+  ]),
+]
+
+function isAllowedOrigin(origin) {
+  return !origin || allowedOrigins.includes(origin)
+}
+
 const app = express()
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
-  cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:3000', methods: ['GET', 'POST'] },
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 })
 
 app.use(helmet())
 app.use(compression())
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3000' }))
+app.use(cors({
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) return callback(null, true)
+    return callback(new Error(`Origin ${origin} not allowed by CORS`))
+  },
+}))
 app.use(express.json({ limit: '10mb' }))
 app.use(morgan('dev'))
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }))

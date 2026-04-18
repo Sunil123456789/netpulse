@@ -2,6 +2,11 @@ import { getESClient } from '../../config/elasticsearch.js'
 import AIBaseline from '../../models/AIBaseline.js'
 import AIAnomaly from '../../models/AIAnomaly.js'
 import { METRICS } from './baseline.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  startExecutionLog,
+} from '../ai/executionTracking.js'
 
 function resolveDateInput(input, fallbackDate = new Date()) {
   if (!input) return fallbackDate
@@ -134,101 +139,135 @@ async function detectAnomalies({
   dateRange = null,
   sensitivity = 2.0,
   sources = ['firewall', 'cisco', 'zabbix'],
-  triggeredBy = 'manual'
+  triggeredBy = 'manual',
+  trigger = 'http',
 }) {
   const startTime = Date.now()
-
-  // Determine time range
-  const to = resolveDateInput(dateRange?.to, new Date())
-  const from = dateRange?.from
-    ? resolveDateInput(dateRange.from, new Date(to.getTime() - 3600000))
-    : new Date(to.getTime() - 3600000) // default last 1 hour
-
-  const anomalies = []
-  let totalChecked = 0
-
-  // Filter metrics by sources
-  const metricsToCheck = METRICS.filter(m => {
-    if (sources.includes('firewall') && m.name.startsWith('firewall')) return true
-    if (sources.includes('cisco') && m.name.startsWith('cisco')) return true
-    if (sources.includes('sentinel') && m.name.startsWith('sentinel')) return true
-    return false
+  const execution = await startExecutionLog({
+    taskKey: 'ml.anomaly.detect',
+    domain: 'ml',
+    trigger,
+    requestLabel: `${sources.join(', ')} @ ${sensitivity}σ`,
   })
 
-  for (const metric of metricsToCheck) {
-    try {
-      // Get current value
-      const current = await getCurrentMetricValue(metric, from, to)
-      if (current === null) continue
+  try {
+    // Determine time range
+    const to = resolveDateInput(dateRange?.to, new Date())
+    const from = dateRange?.from
+      ? resolveDateInput(dateRange.from, new Date(to.getTime() - 3600000))
+      : new Date(to.getTime() - 3600000) // default last 1 hour
 
-      totalChecked++
+    const anomalies = []
+    let totalChecked = 0
 
-      // Get baseline for this time slot
-      const baseline = await getBaselineForTime(metric.name, from)
-      if (!baseline || baseline.samples < 2) {
-        continue // Skip if no baseline yet
+    // Filter metrics by sources
+    const metricsToCheck = METRICS.filter(m => {
+      if (sources.includes('firewall') && m.name.startsWith('firewall')) return true
+      if (sources.includes('cisco') && m.name.startsWith('cisco')) return true
+      if (sources.includes('sentinel') && m.name.startsWith('sentinel')) return true
+      return false
+    })
+
+    for (const metric of metricsToCheck) {
+      try {
+        // Get current value
+        const current = await getCurrentMetricValue(metric, from, to)
+        if (current === null) continue
+
+        totalChecked++
+
+        // Get baseline for this time slot
+        const baseline = await getBaselineForTime(metric.name, from)
+        if (!baseline || baseline.samples < 2) {
+          continue // Skip if no baseline yet
+        }
+
+        // Skip if stddev is 0 (constant metric)
+        if (baseline.stddev === 0) continue
+
+        // Calculate deviation in standard deviations (sigma)
+        const deviation = (current - baseline.mean) / baseline.stddev
+
+        // Only flag if above sensitivity threshold and current > baseline
+        // (we care about spikes, not drops, for security metrics)
+        if (deviation >= sensitivity) {
+          const severity = getSeverity(deviation)
+
+          anomalies.push({
+            metric: metric.name,
+            current,
+            baseline: baseline.mean,
+            baselineStddev: baseline.stddev,
+            deviation: Math.round(deviation * 100) / 100,
+            severity,
+            description: generateDescription(metric.name, current, baseline),
+            recommendation: generateRecommendation(metric.name, severity, deviation),
+            timeSlot: {
+              hour: baseline.hour,
+              dayOfWeek: baseline.dayOfWeek
+            },
+            userFeedback: null,
+            aiReviewed: false,
+            aiConclusion: null
+          })
+        }
+      } catch (err) {
+        console.error(`Anomaly check failed for ${metric.name}:`, err.message)
       }
-
-      // Skip if stddev is 0 (constant metric)
-      if (baseline.stddev === 0) continue
-
-      // Calculate deviation in standard deviations (sigma)
-      const deviation = (current - baseline.mean) / baseline.stddev
-
-      // Only flag if above sensitivity threshold and current > baseline
-      // (we care about spikes, not drops, for security metrics)
-      if (deviation >= sensitivity) {
-        const severity = getSeverity(deviation)
-
-        anomalies.push({
-          metric: metric.name,
-          current,
-          baseline: baseline.mean,
-          baselineStddev: baseline.stddev,
-          deviation: Math.round(deviation * 100) / 100,
-          severity,
-          description: generateDescription(metric.name, current, baseline),
-          recommendation: generateRecommendation(metric.name, severity, deviation),
-          timeSlot: {
-            hour: baseline.hour,
-            dayOfWeek: baseline.dayOfWeek
-          },
-          userFeedback: null,
-          aiReviewed: false,
-          aiConclusion: null
-        })
-      }
-    } catch (err) {
-      console.error(`Anomaly check failed for ${metric.name}:`, err.message)
     }
-  }
 
-  const executionTimeMs = Date.now() - startTime
+    const executionTimeMs = Date.now() - startTime
 
-  // Save anomaly run to MongoDB
-  const saved = await AIAnomaly.create({
-    rangeFrom: from,
-    rangeTo: to,
-    sensitivity,
-    sources,
-    triggeredBy,
-    anomalies,
-    totalChecked,
-    executionTimeMs
-  })
+    // Save anomaly run to MongoDB
+    const saved = await AIAnomaly.create({
+      rangeFrom: from,
+      rangeTo: to,
+      sensitivity,
+      sources,
+      triggeredBy,
+      anomalies,
+      totalChecked,
+      executionTimeMs
+    })
 
-  return {
-    id: saved._id,
-    runAt: saved.runAt,
-    rangeFrom: from,
-    rangeTo: to,
-    sensitivity,
-    sources,
-    triggeredBy,
-    anomalies,
-    totalChecked,
-    totalAnomalies: anomalies.length,
-    executionTimeMs
+    const payload = {
+      id: saved._id,
+      runAt: saved.runAt,
+      rangeFrom: from,
+      rangeTo: to,
+      sensitivity,
+      sources,
+      triggeredBy,
+      anomalies,
+      totalChecked,
+      totalAnomalies: anomalies.length,
+      executionTimeMs
+    }
+
+    await completeExecutionLog(execution._id, {
+      result: {
+        provider: null,
+        model: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        billingMode: 'internal',
+        responseTimeMs: executionTimeMs,
+      },
+      durationMs: executionTimeMs,
+    })
+
+    return payload
+  } catch (err) {
+    await failExecutionLog(execution._id, err, {
+      durationMs: Date.now() - startTime,
+      result: {
+        provider: null,
+        model: null,
+        billingMode: 'internal',
+      },
+    })
+    throw err
   }
 }
 

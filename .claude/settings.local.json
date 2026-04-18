@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp \"/c/Users/sunil.kumar8/AppData/Local/Google/Chrome/User Data/Default/History\" /tmp/chrome_history.db 2>/dev/null && sqlite3 /tmp/chrome_history.db \"SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 30;\" 2>/dev/null)",
+      "Bash(cp \"/c/Users/sunil.kumar8/AppData/Local/Google/Chrome/User Data/Default/History\" /tmp/chrome_history.db 2>/dev/null && python3 -c \"\nimport sqlite3\nconn = sqlite3.connect\\('/tmp/chrome_history.db'\\)\nrows = conn.execute\\('SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 30'\\).fetchall\\(\\)\nfor r in rows:\n    print\\(r[1], '|', r[0]\\)\nconn.close\\(\\)\n\" 2>/dev/null)",
+      "Bash(powershell.exe -Command \"\n$bytes = [System.IO.File]::ReadAllBytes\\('C:\\\\Windows\\\\Temp\\\\chrome_history.db'\\)\n$text = [System.Text.Encoding]::UTF8.GetString\\($bytes\\)\n$found = [regex]::Matches\\($text, 'https?://[^\\\\x00-\\\\x1f ]{5,}'\\)\n$found | ForEach-Object { $_.Value } | Sort-Object -Unique | Select-Object -First 40\n\")",
+      "Bash(powershell.exe -Command \"& {\n$bytes = [System.IO.File]::ReadAllBytes\\('C:\\\\Windows\\\\Temp\\\\chrome_history.db'\\);\n$text = [System.Text.Encoding]::UTF8.GetString\\($bytes\\);\n$found = [regex]::Matches\\($text, 'https?://[^\\\\x00-\\\\x1f ]{5,}'\\);\n$found | ForEach-Object { $_.Value } | Sort-Object -Unique | Select-Object -First 50\n}\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"C:\\\\Windows\\\\Temp\\\\chrome_read.ps1\")",
+      "Bash(npm run *)",
+      "Bash(node --check src/index.js)",
+      "Bash(git -C /c/Users/sunil.kumar8/Desktop/netpulse diff HEAD~1 -- server/src/services/ai/providers/openai.js)",
+      "Bash(timeout 5 node src/index.js)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node *)",
+      "Bash(grep -c \"DONE in\" \"C:\\\\Users\\\\SUNIL~1.KUM\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-sunil-kumar8-Desktop-netpulse\\\\05419d09-980b-45dc-884f-5cfb4908f1ec\\\\tasks\\\\brjhs1uk3.output\" tail -20 \"C:\\\\Users\\\\SUNIL~1.KUM\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-sunil-kumar8-Desktop-netpulse\\\\05419d09-980b-45dc-884f-5cfb4908f1ec\\\\tasks\\\\brjhs1uk3.output\")",
+      "Bash(curl -s http://ollama.smile4u.in:11434/api/tags)"
+    ]
+  }
+}

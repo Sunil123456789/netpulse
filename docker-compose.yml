@@ -14,6 +14,7 @@ services:
     environment:
       - VITE_API_URL=http://localhost:5000
       - VITE_WS_URL=ws://localhost:5000
+      - VITE_OPEN_WEBUI_URL=${VITE_OPEN_WEBUI_URL:-}
     depends_on:
       - server
     networks:

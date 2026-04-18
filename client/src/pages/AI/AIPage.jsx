@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import RangePicker from '../../components/ui/RangePicker.jsx'
 import { useAuthStore } from '../../store/authStore'
 import { C } from './constants'
@@ -7,13 +7,17 @@ import { ProviderBadge, Toast } from './components/Common.jsx'
 import { useAIStatus } from './hooks/useAIStatus.js'
 import { useAITabs } from './hooks/useAITabs.js'
 import { useAIToasts } from './hooks/useAIToasts.js'
+
+const NO_PAD_TABS = ['chat', 'benchmark']
+
 /* ══════════════════════════════════════════════════════════════════
    MAIN PAGE
 ══════════════════════════════════════════════════════════════════ */
 export default function AIPage() {
   const user = useAuthStore(s => s.user)
   const [range, setRange] = useState({ type: 'preset', value: '1h', label: '1h' })
-  const { section, setSection, tab, setTab, visibleSections, visibleTabs, activeSection, activeTab } = useAITabs(user)
+  const { section, tab, setTabDirect, visibleSections, activeSection, activeTab } = useAITabs(user)
+  const flatTabs = visibleSections.flatMap(sec => sec.tabs.map(t => ({ ...t, sectionId: sec.id })))
   const { toasts, addToast } = useAIToasts()
   const {
     configs,
@@ -27,6 +31,8 @@ export default function AIPage() {
     fetchAll,
     activeProvider,
   } = useAIStatus()
+
+  const isNoPad = NO_PAD_TABS.includes(activeTab?.id)
 
   /* ══════════════════════════════════════════════════════════════ */
   return (
@@ -46,47 +52,46 @@ export default function AIPage() {
         {section !== 'settings' && <RangePicker range={range} onChange={setRange} />}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 8, padding: '10px 16px 6px', overflowX: 'auto' }}>
-          {visibleSections.map(s => (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '7px 14px',
-                borderRadius: 999,
-                border: `1px solid ${section === s.id ? C.accent2 : 'var(--border)'}`,
-                background: section === s.id ? 'rgba(124,92,252,0.16)' : 'var(--bg3)',
-                color: section === s.id ? C.text : C.text3,
-                cursor: 'pointer',
-                fontSize: 11,
-                fontFamily: 'var(--mono)',
-                fontWeight: section === s.id ? 700 : 500,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span>{s.icon}</span>
-              <span>{s.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {visibleTabs.length > 1 && (
-          <div style={{ display: 'flex', gap: 2, padding: '0 16px', overflowX: 'auto' }}>
-            {visibleTabs.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 500, borderRadius: '8px 8px 0 0', background: tab === t.id ? 'var(--bg3)' : 'transparent', color: tab === t.id ? C.accent2 : C.text3, borderBottom: tab === t.id ? `2px solid ${C.accent2}` : '2px solid transparent', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
+      {/* flat single-row tabs */}
+      <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', flexShrink: 0, overflowX: 'auto', padding: '0 16px' }}>
+        {flatTabs.map((t, idx) => {
+          const isActive = t.id === activeTab?.id && t.sectionId === section
+          const prevTab = flatTabs[idx - 1]
+          const showDivider = idx > 0 && prevTab.sectionId !== t.sectionId
+          return (
+            <React.Fragment key={`${t.sectionId}:${t.id}`}>
+              {showDivider && (
+                <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0, margin: '0 8px' }} />
+              )}
+              <button
+                onClick={() => setTabDirect(t.sectionId, t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '9px 12px',
+                  border: 'none', cursor: 'pointer', fontSize: 11,
+                  fontFamily: 'var(--mono)', fontWeight: isActive ? 700 : 500,
+                  borderRadius: 0, background: 'transparent',
+                  color: isActive ? C.accent2 : C.text3,
+                  borderBottom: isActive ? `2px solid ${C.accent2}` : '2px solid transparent',
+                  transition: 'color 0.15s, border-color 0.15s',
+                  whiteSpace: 'nowrap', flexShrink: 0,
+                }}
+              >
                 <span>{t.icon}</span><span>{t.label}</span>
               </button>
-            ))}
-          </div>
-        )}
+            </React.Fragment>
+          )
+        })}
       </div>
 
       {/* content */}
-      <div style={{ flex: 1, overflow: activeTab?.id === 'chat' ? 'hidden' : 'auto', padding: 16, display: activeTab?.id === 'chat' ? 'flex' : 'block', flexDirection: 'column' }}>
+      <div style={{
+        flex: 1,
+        overflow: isNoPad ? 'hidden' : 'auto',
+        padding: isNoPad ? 0 : 16,
+        display: isNoPad ? 'flex' : 'block',
+        flexDirection: 'column',
+      }}>
         {loading && <div style={{ color: C.text3, fontFamily: 'var(--mono)', fontSize: 12, padding: 20 }}>Loading AI status…</div>}
         {error && !loading && (
           <div style={{ background: 'rgba(245,83,79,0.08)', border: '1px solid rgba(245,83,79,0.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: C.red, fontFamily: 'var(--mono)', fontSize: 11 }}>
@@ -115,7 +120,3 @@ export default function AIPage() {
     </div>
   )
 }
-
-
-
-

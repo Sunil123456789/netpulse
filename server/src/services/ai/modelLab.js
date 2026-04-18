@@ -5,6 +5,12 @@ import { claudeProvider } from './providers/claude.js'
 import { openaiProvider } from './providers/openai.js'
 import { ollamaProvider } from './providers/ollama.js'
 import { buildDisplayFromText, buildMetering } from './presentation.js'
+import {
+  completeExecutionLog,
+  failExecutionLog,
+  isAbortError,
+  startExecutionLog,
+} from './executionTracking.js'
 
 const MODEL_LAB_PROMPT = `You are NetPulse AI, an intelligent network
 and security operations assistant for Lenskart's IT infrastructure.
@@ -34,6 +40,12 @@ function getSources(context) {
 function buildRunner({ provider, model, index, ollamaReady }) {
   const useModel = model || 'auto'
   const targetId = `${provider}:${useModel}:${index}`
+  const runWithStreamingFallback = (providerImpl, messages, systemPrompt, options = {}) => {
+    if (options.preferStream && typeof providerImpl.streamChat === 'function') {
+      return providerImpl.streamChat(messages, systemPrompt, useModel, options)
+    }
+    return providerImpl.chat(messages, systemPrompt, useModel, options)
+  }
 
   if (provider === 'claude') {
     return {
@@ -41,7 +53,7 @@ function buildRunner({ provider, model, index, ollamaReady }) {
       provider,
       model: useModel,
       ready: claudeProvider.isConfigured(),
-      execute: (messages, systemPrompt) => claudeProvider.chat(messages, systemPrompt, useModel),
+      execute: (messages, systemPrompt, options = {}) => runWithStreamingFallback(claudeProvider, messages, systemPrompt, options),
       reason: 'ANTHROPIC_API_KEY not set',
     }
   }
@@ -52,7 +64,7 @@ function buildRunner({ provider, model, index, ollamaReady }) {
       provider,
       model: useModel,
       ready: openaiProvider.isConfigured(),
-      execute: (messages, systemPrompt) => openaiProvider.chat(messages, systemPrompt, useModel),
+      execute: (messages, systemPrompt, options = {}) => runWithStreamingFallback(openaiProvider, messages, systemPrompt, options),
       reason: 'OPENAI_API_KEY not set',
     }
   }
@@ -63,7 +75,7 @@ function buildRunner({ provider, model, index, ollamaReady }) {
       provider,
       model: useModel,
       ready: ollamaReady,
-      execute: (messages, systemPrompt) => ollamaProvider.chat(messages, systemPrompt, useModel),
+      execute: (messages, systemPrompt, options = {}) => runWithStreamingFallback(ollamaProvider, messages, systemPrompt, options),
       reason: 'Ollama not running',
     }
   }
@@ -84,6 +96,8 @@ async function compareModels({
   dateRange = null,
   modelOverrides = {},
   targets = [],
+  trigger = 'http',
+  signal = null,
 }) {
   const sources = getSources(context)
   const contextData = await buildContext(sources, dateRange)
@@ -133,8 +147,20 @@ Reference concrete data points whenever possible.`
       }
     }
 
+    const execution = await startExecutionLog({
+      taskKey: 'ai.comparison',
+      domain: 'ai',
+      trigger,
+      requestLabel: question,
+    })
+
     try {
-      const result = await runner.execute(messages, systemWithContext)
+      const result = await runner.execute(messages, systemWithContext, {
+        signal,
+        maxTokens: 640,
+        temperature: 0.2,
+        preferStream: true,
+      })
       const scoring = await scoreResponse({
         task: 'comparison',
         provider: result.provider,
@@ -142,8 +168,14 @@ Reference concrete data points whenever possible.`
         query: question,
         response: result.content,
         responseTimeMs: result.responseTimeMs,
-        tokensUsed: result.tokensUsed,
+        tokensUsed: result.totalTokens,
         save: true,
+      })
+
+      await completeExecutionLog(execution._id, {
+        result,
+        durationMs: result.responseTimeMs,
+        scoreId: scoring.scoreId,
       })
 
       return {
@@ -152,7 +184,10 @@ Reference concrete data points whenever possible.`
         model: result.model,
         available: true,
         response: result.content,
-        tokensUsed: result.tokensUsed,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        totalTokens: result.totalTokens,
+        tokensUsed: result.totalTokens,
         responseTimeMs: result.responseTimeMs,
         totalScore: scoring.totalScore,
         scores: scoring.scores,
@@ -161,6 +196,11 @@ Reference concrete data points whenever possible.`
         metering: buildMetering(result),
       }
     } catch (err) {
+      await failExecutionLog(execution._id, err, {
+        status: isAbortError(err) ? 'canceled' : 'failed',
+      })
+      if (isAbortError(err)) throw err
+
       return {
         targetId: runner.targetId,
         provider: runner.provider,
